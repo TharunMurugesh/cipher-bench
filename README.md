@@ -116,9 +116,9 @@ Experiment scripts write to saved artifact paths. Preserve a copy of `artifacts/
 
 The workflow at [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the dashboard tests, builds the static site with the correct repository subpath, and deploys `dist/` when changes reach `main`.
 
-1. Push this repository to GitHub.
+1. Create a GitHub repository for this project.
 2. In **Settings → Pages**, set the publishing source to **GitHub Actions**.
-3. Watch the **Actions** tab for the build and deployment. The Pages URL appears in the successful deployment environment.
+3. Push the `main` branch. The workflow tests, builds, and deploys the site; its URL appears in the successful deployment environment.
 
 GitHub Pages sites are publicly accessible. The supplied research PDFs and generated presentation outputs are intentionally excluded from the repository; the reports cite the sources instead. See [GitHub’s Pages publishing documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site) for repository and visibility requirements.
 
