@@ -329,7 +329,6 @@ export function buildDashboardData(raw: unknown): DashboardData {
   return {
     records,
     publishedPaper: str(obj(bundle.published_reference).paper) ?? "Published paper title unavailable",
-    sourceReports: ["BASELINE_REPORT.md", "CKKS_DIAGNOSTIC_REPORT.md", "ABLATION_REPORT.md", "NOVELTY_REVIEW.md", "ENVIRONMENT_REPORT.md"],
     phase3RunId: str(phase3.run_id) ?? "Run ID unavailable",
     phase3Timestamp: str(phase3.completed_utc) ?? str(phase3.timestamp_utc),
     taskSplits,

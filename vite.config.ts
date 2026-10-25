@@ -17,19 +17,8 @@ const artifactFiles = [
   "baseline_predictions.csv",
   "phase3_predictions.csv",
 ];
-const reportFiles = [
-  "BASELINE_REPORT.md",
-  "CKKS_DIAGNOSTIC_REPORT.md",
-  "ABLATION_REPORT.md",
-  "NOVELTY_REVIEW.md",
-  "ENVIRONMENT_REPORT.md",
-];
-
 function localResearchFiles(): Plugin {
-  const allow = new Set([
-    ...artifactFiles.map((name) => `artifacts/${name}`),
-    ...reportFiles.map((name) => `reports/${name}`),
-  ]);
+  const allow = new Set(artifactFiles.map((name) => `artifacts/${name}`));
   return {
     name: "cipherbench-local-research-files",
     configureServer(server) {
@@ -38,13 +27,10 @@ function localResearchFiles(): Plugin {
         const key = pathname.replace(/^\//, "");
         if (!allow.has(key)) return next();
         try {
-          const filename = key.startsWith("artifacts/")
-            ? resolve(rootDir, key)
-            : resolve(rootDir, key.replace("reports/", ""));
+          const filename = resolve(rootDir, key);
           const content = await readFile(filename);
           res.statusCode = 200;
-          res.setHeader("Content-Type", key.endsWith(".json") ? "application/json; charset=utf-8" :
-            key.endsWith(".csv") ? "text/csv; charset=utf-8" : "text/markdown; charset=utf-8");
+          res.setHeader("Content-Type", key.endsWith(".json") ? "application/json; charset=utf-8" : "text/csv; charset=utf-8");
           res.setHeader("Cache-Control", "no-store");
           res.end(content);
         } catch {
@@ -56,12 +42,9 @@ function localResearchFiles(): Plugin {
     async writeBundle(output) {
       const outDir = resolve(rootDir, output.dir ?? "dist");
       const artifactDir = resolve(outDir, "artifacts");
-      const reportDir = resolve(outDir, "reports");
       await mkdir(artifactDir, { recursive: true });
-      await mkdir(reportDir, { recursive: true });
       await Promise.all([
         ...artifactFiles.map((name) => copyFile(resolve(rootDir, "artifacts", name), resolve(artifactDir, name))),
-        ...reportFiles.map((name) => copyFile(resolve(rootDir, name), resolve(reportDir, name))),
       ]);
     },
   };

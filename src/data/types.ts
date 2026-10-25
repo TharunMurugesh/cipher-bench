@@ -57,7 +57,6 @@ export type ArtifactBundle = {
 export type DashboardData = {
   records: ExperimentRecord[];
   publishedPaper: string;
-  sourceReports: string[];
   phase3RunId: string;
   phase3Timestamp: string | null;
   taskSplits: Record<string, { splitId: string | null; seed: number | null; sizes: Record<string, number> }>;

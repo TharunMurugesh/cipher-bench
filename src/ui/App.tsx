@@ -128,7 +128,7 @@ function Overview({ data, task, mode, variant, onTask, onMode, onVariant, select
       <div className="insight-card positive"><div className="insight-symbol">↗</div><div><div className="eyebrow">OBSERVED / {ablationTaskKey.replaceAll("_", " ")}</div><h3>{task === primaryTask ? "A0–A3 tie on this split" : "Pixel scaling leads this split"}</h3><p>{task === primaryTask ? "A0–A3 each classify 107/108 held-out samples correctly. One sample changes class across variants; this is not a measurable accuracy gain." : "A1 and A3 score 107/108. Since A1 matches A3, the result does not show an added benefit from the range penalty."}</p></div></div>
       <div className="insight-card caution"><div className="insight-symbol">!</div><div><div className="eyebrow">UNRESOLVED / PRIVACY</div><h3>CKKS feature extraction is not end-to-end</h3><p>{ckksFidelity?.privacyBoundary ?? "Pooled features are decrypted before the linear classification head. The im2col experiment decrypts even earlier."}</p></div></div>
     </section>
-    <div className="citation-line"><span>Published reference: {data.publishedPaper}</span><a href={`${import.meta.env.BASE_URL}reports/BASELINE_REPORT.md`}>Read baseline report ↗</a></div>
+    <div className="citation-line"><span>Published reference: {data.publishedPaper}</span><a href="https://doi.org/10.56082/annalsarsciinfo.2025.2.50" target="_blank" rel="noreferrer">Open paper ↗</a></div>
   </>;
 }
 
@@ -179,7 +179,7 @@ function ArchitecturePage({ data, task, mode, selectedRecord, onSelectRecord }: 
       <div><b>A3 · RC-TinyCNN</b><p>Combines pixel scaling and the selected range penalty; same square activation and pooling structure.</p><small>Observed: {formatPercent(a3?.metrics.accuracy)}; max |z| {formatNumber(safeNum(objValue(a3Range, "max_abs")), 2)}, outside B {formatPercent(safeNum(objValue(a3Range, "bound_violation_rate")))}. No incremental gain beyond A1 in this run.</small></div>
       <div><b>A4 · Threshold</b><p>Threshold is selected to maximize validation positive-class F1, then validation accuracy, with a tie preference nearest zero.</p><small>Observed threshold: {formatNumber(Number(objValue(candidate?.configuration.thresholdSelection, "threshold_logit")), 2)}. Report separately from architecture changes.</small></div>
     </div></div><div className="panel"><div className="eyebrow">INTERPRETATION</div><h2>Accuracy ≠ CKKS agreement</h2><p className="body-copy">Classification accuracy compares predictions with ground-truth labels. CKKS agreement compares encrypted-path predictions with the same model’s float64 polynomial graph. A path can agree perfectly with plaintext and still misclassify; agreement is a numerical fidelity check, not an accuracy score.</p><div className="pair-stat"><span>CKKS agreement · primary validation</span><strong>38 / 38</strong></div><div className="pair-stat"><span>CKKS agreement · held-out test</span><strong>108 / 108</strong></div><div className="callout caution-callout">The pooled feature vector is decrypted before the head. These are partial encrypted-inference measurements.</div></div></section>
-    <div className="citation-line"><span>Values from {data.phase3RunId}; no training or test evaluation was triggered by this page.</span><a href={`${import.meta.env.BASE_URL}reports/ABLATION_REPORT.md`}>Full ablation report ↗</a></div>
+    <div className="citation-line"><span>Values from {data.phase3RunId}; no training or test evaluation was triggered by this page.</span><a href="https://github.com/TharunMurugesh/cipher-bench/tree/main/artifacts">Inspect saved artifacts ↗</a></div>
   </>;
 }
 
@@ -213,7 +213,6 @@ function ExperimentsPage({ data, task, mode, selectedId, onSelectId }: { data: D
       </div>
     </section>}
     <section className="panel action-panel"><div className="action-icon">⊘</div><div><div className="eyebrow">RUN EXPERIMENT</div><h2>Dashboard execution is disabled</h2><p>The ablation command takes several minutes and writes to fixed result paths. Launching it here could overwrite saved artifacts, so this UI does not start runs or show simulated progress. Use the CLI workflow only against a preserved copy.</p><code>python scripts/run_phase3_ablation.py</code></div><Status value="Unsupported in dashboard" /></section>
-    <section className="panel reports-panel"><div className="panel-heading"><div><div className="eyebrow">RESEARCH NOTES</div><h2>Reports & methodology</h2></div></div><div className="report-links">{data.sourceReports.map((name) => <a key={name} href={`${import.meta.env.BASE_URL}reports/${name}`} target="_blank" rel="noreferrer"><span>▤</span><div><b>{name.replaceAll("_", " ").replace(".md", "")}</b><small>Markdown report · project workspace</small></div><strong>↗</strong></a>)}</div></section>
   </>;
 }
 

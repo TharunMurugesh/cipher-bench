@@ -13,6 +13,6 @@ Thumbs.db
 .env.*
 !.env.example
 
-# Supplied source papers are cited in the reports but are not redistributed.
+# Source papers are cited by DOI and are not redistributed.
 /IFVol18Nr2Art.5.pdf
 /2025-972.pdf
