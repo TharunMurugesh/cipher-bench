@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { candidateArchitecture } from "./architecture";
 import { exportJson, filterRecords, formatDeltaPp, formatPercent, toCsv } from "./compare";
-import { buildDashboardData, validateArtifactBundle } from "./transform";
+import { buildDashboardData, loadDashboardData, validateArtifactBundle } from "./transform";
 import type { ArtifactBundle } from "./types";
 
 const artifact = (name: string) => JSON.parse(readFileSync(`artifacts/${name}`, "utf-8")) as unknown;
@@ -36,6 +36,27 @@ describe("dashboard artifact data", () => {
     expect(() => validateArtifactBundle(broken)).toThrow("baseline_results.models must be an object");
     const brokenCsv = { ...bundle(), phase3_predictions: "task\n0\n" };
     expect(() => buildDashboardData(brokenCsv)).toThrow("phase3_predictions.csv is missing column");
+  });
+
+  it("combines fresh run outputs with checked-in artifacts that the run does not regenerate", async () => {
+    const requested: string[] = [];
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      requested.push(url);
+      const name = url.split("/").pop() ?? "";
+      if (url.startsWith("/api/demo/artifacts/")) {
+        if (name === "phase3_ablation.json" || name === "phase3_ckks_validation.json" || name === "phase3_splits.json" || name === "phase3_predictions.csv") {
+          return new Response(readFileSync(`artifacts/${name}`, "utf-8"), { status: 200 });
+        }
+        return new Response("missing from this run", { status: 404 });
+      }
+      return new Response(readFileSync(`artifacts/${name}`, "utf-8"), { status: 200 });
+    };
+    const data = await loadDashboardData(fetcher, "/api/demo/artifacts/test-run/", "/artifacts/");
+    expect(data.records.some((record) => record.provenance === "Published")).toBe(true);
+    expect(data.records.some((record) => record.variant === "A3 · RC-TinyCNN" && record.sourceArtifact.startsWith("phase3_ablation.json"))).toBe(true);
+    expect(requested).toContain("/api/demo/artifacts/test-run/published_reference.json");
+    expect(requested).toContain("/artifacts/published_reference.json");
   });
 
   it("filters by task and execution mode without mixing benchmark tasks", () => {

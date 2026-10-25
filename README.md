@@ -18,7 +18,7 @@ flowchart LR
 
 The Python code loads digits 0 and 1 for the primary task and digits 3 and 8 for a secondary task. It evaluates Logistic Regression, a shallow CNN, and a float64 implementation of the CNN's polynomial computation graph. The CNN uses a valid 3×3 convolution, square activation, 2×2 average pooling, and a linear classification head. Controlled variants compare per-feature standardization with fixed pixel scaling and a training-only activation-range penalty.
 
-The CKKS paths use TenSEAL to evaluate selected CNN feature-extraction operations. They decrypt intermediate features before the classification head, so they are partial encrypted-inference experiments. The dashboard reads checked-in artifacts; it does not train models or run encryption in the browser.
+The CKKS paths use TenSEAL to evaluate selected CNN feature-extraction operations. They decrypt intermediate features before the classification head, so they are partial encrypted-inference experiments. The static GitHub Pages site presents saved results. The local dashboard can launch the Python Phase 3 pipeline and load its newly measured results.
 
 ## Main results
 
@@ -48,7 +48,11 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. To create and preview the static site:
+Open the local address printed by Vite and select **Experiments & Reproducibility**. The **Start training + test** action runs Phase 3 model selection, CKKS validation diagnostics, and the frozen held-out evaluation. It requires the Python environment described below. Run outputs are isolated in the operating system's temporary directory; **Clear temporary run data** deletes that run and restores the checked-in results. The local run API is available only in Vite development mode.
+
+GitHub Pages is static hosting and cannot start Python jobs. Its dashboard links users to the local setup; use the deployed site to inspect saved results, and use `npm run dev` when you need to run a fresh training and test cycle.
+
+To create and preview the static site:
 
 ```sh
 npm run build
@@ -77,7 +81,7 @@ The main entry points are:
 | `python scripts/run_phase3_ablation.py` | Run the controlled two-task ablations |
 | `python scripts/evaluate_phase3_ckks.py` | Evaluate CKKS partial paths on the saved validation split |
 
-These scripts write into `artifacts/`. Copy that directory before rerunning if you want to preserve the checked-in results.
+Most experiment scripts write into `artifacts/` by default. The Phase 3 runner also accepts `CIPHERBENCH_ARTIFACT_DIR` to direct outputs elsewhere; the local dashboard uses a temporary directory automatically so its runs do not replace the checked-in results.
 
 ## Reproducing and interpreting results
 

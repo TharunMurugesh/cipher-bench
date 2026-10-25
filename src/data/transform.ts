@@ -341,17 +341,20 @@ export const artifactPaths = [
 ] as const;
 const predictionCsvPaths = ["baseline_predictions.csv", "phase3_predictions.csv"] as const;
 
-export async function loadDashboardData(fetcher: typeof fetch = fetch): Promise<DashboardData> {
-  const baseUrl = import.meta.env.BASE_URL;
-  const jsonEntries = await Promise.all(artifactPaths.map(async (name) => {
-    const response = await fetcher(`${baseUrl}artifacts/${name}`, { cache: "no-store" });
+export async function loadDashboardData(fetcher: typeof fetch = fetch, artifactBase = `${import.meta.env.BASE_URL}artifacts/`, fallbackArtifactBase = `${import.meta.env.BASE_URL}artifacts/`): Promise<DashboardData> {
+  const loadResponse = async (name: string) => {
+    let response = await fetcher(`${artifactBase}${name}`, { cache: "no-store" });
+    if (!response.ok && artifactBase !== fallbackArtifactBase) response = await fetcher(`${fallbackArtifactBase}${name}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Could not load artifacts/${name} (HTTP ${response.status}).`);
+    return response;
+  };
+  const jsonEntries = await Promise.all(artifactPaths.map(async (name) => {
+    const response = await loadResponse(name);
     try { return [name.replace(".json", ""), await response.json()] as const; }
     catch { throw new Error(`artifacts/${name} is not valid JSON.`); }
   }));
   const csvEntries = await Promise.all(predictionCsvPaths.map(async (name) => {
-    const response = await fetcher(`${baseUrl}artifacts/${name}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Could not load artifacts/${name} (HTTP ${response.status}).`);
+    const response = await loadResponse(name);
     return [name.replace(".csv", ""), await response.text()] as const;
   }));
   return buildDashboardData(Object.fromEntries([...jsonEntries, ...csvEntries]));

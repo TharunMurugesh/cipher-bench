@@ -5,6 +5,7 @@ import { loadDashboardData } from "../data/transform";
 import type { DashboardData, ExperimentRecord, MetricSet } from "../data/types";
 
 type Page = "Overview" | "Architecture & Ablation" | "Experiments & Reproducibility";
+type DemoRun = { available: boolean; status: "idle" | "running" | "completed" | "failed"; runId?: string; logs: string[]; error?: string };
 const pages: { title: Page; icon: string; eyebrow: string }[] = [
   { title: "Overview", icon: "◫", eyebrow: "RESULTS" },
   { title: "Architecture & Ablation", icon: "⌘", eyebrow: "METHOD" },
@@ -186,7 +187,7 @@ function ArchitecturePage({ data, task, mode, selectedRecord, onSelectRecord }: 
 function objValue(value: unknown, key: string): unknown { return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : null; }
 function safeNum(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) ? value : null; }
 
-function ExperimentsPage({ data, task, mode, selectedId, onSelectId }: { data: DashboardData; task: string; mode: string; selectedId: string; onSelectId: (id: string) => void }) {
+function ExperimentsPage({ data, task, mode, selectedId, onSelectId, run, busy, onRun, onClear }: { data: DashboardData; task: string; mode: string; selectedId: string; onSelectId: (id: string) => void; run: DemoRun | null; busy: boolean; onRun: () => void; onClear: () => void }) {
   const [scope, setScope] = useState("All records");
   const [exportMessage, setExportMessage] = useState("");
   const filtered = useMemo(() => filterRecords(data.records, task, mode), [data.records, task, mode]);
@@ -212,7 +213,11 @@ function ExperimentsPage({ data, task, mode, selectedId, onSelectId }: { data: D
         {ckksOnly && <div className="callout caution-callout">Do not interpret this as fully encrypted classification. The specific decryption boundary is listed above.</div>}
       </div>
     </section>}
-    <section className="panel action-panel"><div className="action-icon">⊘</div><div><div className="eyebrow">RUN EXPERIMENT</div><h2>Dashboard execution is disabled</h2><p>The ablation command takes several minutes and writes to fixed result paths. Launching it here could overwrite saved artifacts, so this UI does not start runs or show simulated progress. Use the CLI workflow only against a preserved copy.</p><code>python scripts/run_phase3_ablation.py</code></div><Status value="Unsupported in dashboard" /></section>
+    <section className="panel action-panel demo-run-panel"><div className="action-icon">{run?.status === "running" ? "◌" : "▶"}</div><div className="demo-run-content"><div className="eyebrow">RUN EXPERIMENT</div><h2>{!run?.available ? "Train and test from the local dashboard" : run.status === "running" ? "Training and evaluation in progress" : run.status === "completed" ? "Run complete · results loaded" : run.status === "failed" ? "Run failed" : "Run a fresh training and test"}</h2>
+      {!run?.available ? <><p>GitHub Pages serves a static dashboard and cannot start Python jobs. To run the benchmark interactively, clone the repository, install its documented Python dependencies, then start the local dashboard with <code>npm run dev</code>.</p><code>python -m pip install -r requirements.txt</code></> : <><p>This runs the documented Phase 3 training, validation, CKKS numerical diagnostic and held-out test pipeline. Results are written to a temporary run directory, then loaded into the dashboard. Checked-in artifacts remain unchanged.</p>
+        <div className="demo-run-actions"><button className="button primary" disabled={busy || run.status === "running"} onClick={onRun}>{busy || run.status === "running" ? "Running…" : run.status === "completed" || run.status === "failed" ? "Run again" : "Start training + test"}</button>{run.status !== "idle" && run.status !== "running" && <button className="button subtle" disabled={busy} onClick={onClear}>Clear temporary run data</button>}<Status value={run.status === "idle" ? "Ready" : run.status} /></div>
+        {run.error && <p className="demo-error" role="alert">{run.error}</p>}{run.logs.length > 0 && <details className="demo-log" open={run.status === "running" || run.status === "failed"}><summary>Run log</summary><pre>{run.logs.join("\n")}</pre></details>}</>}
+    </div></section>
   </>;
 }
 
@@ -225,7 +230,37 @@ export function App() {
   const [variant, setVariant] = useState("A3 · RC-TinyCNN");
   const [selectedId, setSelectedId] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
+  const [demoRun, setDemoRun] = useState<DemoRun | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
   useEffect(() => { loadDashboardData().then(setData).catch((e: unknown) => setError(e instanceof Error ? e.message : "Unknown artifact loading error.")); }, []);
+  useEffect(() => { let alive = true; fetch("/api/demo/status", { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<DemoRun>; }).then(async (run) => { if (!alive) return; setDemoRun(run); if (run.status === "completed" && run.runId) { try { setData(await loadDashboardData(fetch, `/api/demo/artifacts/${run.runId}/`)); } catch (e) { setDemoRun({ ...run, status: "failed", error: e instanceof Error ? e.message : "Could not load the completed run artifacts." }); } } }).catch(() => { if (alive) setDemoRun({ available: false, status: "idle", logs: [] }); }); return () => { alive = false; }; }, []);
+  useEffect(() => {
+    if (demoRun?.status !== "running") return;
+    let alive = true;
+    const timer = window.setInterval(() => { fetch("/api/demo/status", { cache: "no-store" }).then((response) => response.json() as Promise<DemoRun>).then(async (next) => {
+      if (!alive) return;
+      setDemoRun(next);
+      if (next.status === "completed" && next.runId) {
+        setDemoBusy(true);
+        try { setData(await loadDashboardData(fetch, `/api/demo/artifacts/${next.runId}/`)); setSelectedId(""); }
+        catch (e) { setDemoRun({ ...next, status: "failed", error: e instanceof Error ? e.message : "Could not load the completed run artifacts." }); }
+        finally { setDemoBusy(false); }
+      }
+    }).catch(() => undefined); }, 1200);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [demoRun?.status, demoRun?.runId]);
+  const startDemoRun = async () => {
+    setDemoBusy(true);
+    try { const response = await fetch("/api/demo/run", { method: "POST" }); const body = await response.json() as DemoRun & { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not start the run."); setDemoRun(body); }
+    catch (e) { setDemoRun({ available: true, status: "failed", logs: [], error: e instanceof Error ? e.message : "Could not start the run." }); }
+    finally { setDemoBusy(false); }
+  };
+  const clearDemoRun = async () => {
+    setDemoBusy(true);
+    try { const response = await fetch("/api/demo/run", { method: "DELETE" }); const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not clear temporary run data."); setDemoRun({ available: true, status: "idle", logs: [] }); setData(await loadDashboardData()); setSelectedId(""); }
+    catch (e) { setDemoRun((previous) => previous ? { ...previous, error: e instanceof Error ? e.message : "Could not clear temporary run data." } : previous); }
+    finally { setDemoBusy(false); }
+  };
   const taskRecords = useMemo(() => data?.records.filter((r) => r.task === task) ?? [], [data, task]);
   const variantNames = [...new Set(taskRecords.map((r) => r.variant))];
   useEffect(() => { if (!variantNames.includes(variant)) setVariant(variantNames.find((v) => v.startsWith("A3")) ?? "All variants"); }, [task, data]);
@@ -243,7 +278,7 @@ export function App() {
     </aside>
     {mobileNav && <button aria-label="Close navigation overlay" className="nav-backdrop" onClick={() => setMobileNav(false)} />}
     <main className="main-content"><header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}>☰</button><div className="breadcrumb">CipherBench <span>/</span> <b>{page}</b></div><div className="topbar-right"><div className="top-run"><span className="live-dot" />Latest run <b>{data.phase3RunId.replace("phase3-", "")}</b></div><div className="top-avatar">CB</div></div></header>
-      <div className="page-content">{page === "Overview" && <Overview data={data} task={task} mode={mode} variant={variant} onTask={chooseTask} onMode={(value) => { setMode(value); setSelectedId(""); }} onVariant={(value) => { setVariant(value); setSelectedId(""); }} selected={focusedRecord} onSelect={onSelectRecord} />}{page === "Architecture & Ablation" && <ArchitecturePage data={data} task={task} mode={mode} selectedRecord={selectedRecord} onSelectRecord={onSelectRecord} />}{page === "Experiments & Reproducibility" && <ExperimentsPage data={data} task={task} mode={mode} selectedId={selectedId} onSelectId={(id) => { setSelectedId(id); const record = data.records.find((item) => item.id === id); if (record) setVariant(record.variant); }} />}</div>
+      <div className="page-content">{page === "Overview" && <Overview data={data} task={task} mode={mode} variant={variant} onTask={chooseTask} onMode={(value) => { setMode(value); setSelectedId(""); }} onVariant={(value) => { setVariant(value); setSelectedId(""); }} selected={focusedRecord} onSelect={onSelectRecord} />}{page === "Architecture & Ablation" && <ArchitecturePage data={data} task={task} mode={mode} selectedRecord={selectedRecord} onSelectRecord={onSelectRecord} />}{page === "Experiments & Reproducibility" && <ExperimentsPage data={data} task={task} mode={mode} selectedId={selectedId} onSelectId={(id) => { setSelectedId(id); const record = data.records.find((item) => item.id === id); if (record) setVariant(record.variant); }} run={demoRun} busy={demoBusy} onRun={startDemoRun} onClear={clearDemoRun} />}</div>
       <footer className="app-footer"><span>Data loaded from project artifacts · results retain source and split labels</span><span>Research dashboard <i>•</i> {data.records.length} artifact-backed records</span></footer>
     </main>
   </div>;

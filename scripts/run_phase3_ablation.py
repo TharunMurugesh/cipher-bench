@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import platform
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -34,7 +35,8 @@ from models.polynomial_graph import PolynomialGraph
 from models.tinycnn import TinyCNN, _fit_fixed_epochs, train_tinycnn
 
 
-ARTIFACTS = ROOT / "artifacts"
+SOURCE_ARTIFACTS = ROOT / "artifacts"
+ARTIFACTS = Path(os.environ.get("CIPHERBENCH_ARTIFACT_DIR", SOURCE_ARTIFACTS)).resolve()
 SEED_PRIMARY = 2026
 SEED_SECONDARY = 3038
 MAX_EPOCHS = 1000
@@ -221,7 +223,7 @@ def _secondary_split(data) -> dict:
 
 def _benchmark_definitions() -> dict:
     primary = load_binary_digits()
-    split_primary = json.loads((ARTIFACTS / "splits.json").read_text(encoding="utf-8"))
+    split_primary = json.loads((SOURCE_ARTIFACTS / "splits.json").read_text(encoding="utf-8"))
     secondary = load_digit_pair(3, 8)
     split_secondary = _secondary_split(secondary)
     splits = {"digits_0_vs_1": split_primary, "digits_3_vs_8": split_secondary}
@@ -481,9 +483,11 @@ def _final_test(task_data, split_doc, task_result: dict, fit_quality: dict) -> N
 
 
 def main() -> None:
+    print("Loading fixed source split and pretrained Phase 1 baseline metadata...", flush=True)
     primary = load_binary_digits()
-    prior_baseline = json.loads((ARTIFACTS / "baseline_results.json").read_text(encoding="utf-8"))
-    phase1_model = json.loads((ARTIFACTS / "model_parameters.json").read_text(encoding="utf-8"))
+    prior_baseline = json.loads((SOURCE_ARTIFACTS / "baseline_results.json").read_text(encoding="utf-8"))
+    phase1_model = json.loads((SOURCE_ARTIFACTS / "model_parameters.json").read_text(encoding="utf-8"))
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
     if prior_baseline["split_id"] != phase1_model["split_id"]:
         raise RuntimeError("Phase 1 baseline and saved weights disagree on split identity")
     benchmarks = _benchmark_definitions()
@@ -514,6 +518,7 @@ def main() -> None:
     fit_quality_by_task = {}
     # Training and selection complete for both benchmarks before the final test evaluation.
     for task_name, (data, split_doc, mapping) in benchmarks.items():
+        print(f"Training and selecting configurations: {task_name}", flush=True)
         task_result, fit_quality = _fit_task(task_name, data, split_doc, mapping,
                                              seed=SEED_PRIMARY if task_name == "digits_0_vs_1" else SEED_SECONDARY)
         results["benchmarks"][task_name] = task_result
@@ -526,6 +531,7 @@ def main() -> None:
     # CKKS numerical comparison is performed on primary-task validation rows only.
     # It uses the Phase 2 supported chain; the plaintext head remains explicitly plaintext.
     context_start = time.perf_counter()
+    print("Running CKKS numerical validation on the primary validation split...", flush=True)
     context = make_context("depth3_40bit_exploratory")
     keygen_seconds = time.perf_counter() - context_start
     ckks_results = {"parameter_set": "depth3_40bit_exploratory",
@@ -554,6 +560,7 @@ def main() -> None:
 
     # Single final evaluation per task, after architecture, grid values, and threshold are frozen.
     for task_name, (data, split_doc, _mapping) in benchmarks.items():
+        print(f"Evaluating frozen configurations on held-out test rows: {task_name}", flush=True)
         _final_test(data, split_doc, results["benchmarks"][task_name], fit_quality_by_task[task_name])
     results["status"] = "completed"
     results["completed_utc"] = datetime.now(timezone.utc).isoformat()
