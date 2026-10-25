@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+.pytest_cache/
+.coverage
+.phase5_build/
+output/
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+
+# Supplied source papers are cited in the reports but are not redistributed.
+/IFVol18Nr2Art.5.pdf
+/2025-972.pdf

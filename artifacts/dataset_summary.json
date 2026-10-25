@@ -1,0 +1,188 @@
+{
+  "alternative_preprocessing": "Not run in Phase 1; paper-style StandardScaler remains a separate control.",
+  "class_counts_all": {
+    "0": 178,
+    "1": 182
+  },
+  "class_counts_train": {
+    "0": 125,
+    "1": 127
+  },
+  "dataset": "sklearn.datasets.load_digits",
+  "flatten_order": "C row-major from original 8x8 image",
+  "flattened_feature_count": 64,
+  "image_shape": [
+    8,
+    8
+  ],
+  "input_diagnostics": {
+    "all_filtered_images_shape": [
+      360,
+      8,
+      8
+    ],
+    "border_feature_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      15,
+      16,
+      23,
+      24,
+      31,
+      32,
+      39,
+      40,
+      47,
+      48,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63
+    ],
+    "border_near_constant_feature_count": 14,
+    "border_near_constant_feature_indices": [
+      0,
+      7,
+      8,
+      15,
+      16,
+      23,
+      24,
+      31,
+      32,
+      39,
+      40,
+      47,
+      48,
+      56
+    ],
+    "feature_count": 64,
+    "near_constant_feature_count": 14,
+    "near_constant_feature_indices": [
+      0,
+      7,
+      8,
+      15,
+      16,
+      23,
+      24,
+      31,
+      32,
+      39,
+      40,
+      47,
+      48,
+      56
+    ],
+    "near_constant_threshold_std_le": 1e-08,
+    "raw_pixel_value_range_expected": [
+      0.0,
+      16.0
+    ],
+    "train_feature_mean_range": [
+      0.0,
+      13.261904761904763
+    ],
+    "train_feature_std_range": [
+      0.0,
+      7.36557110427385
+    ],
+    "train_raw_feature_summary": {
+      "count": 16128,
+      "finite_count": 16128,
+      "max": 16.0,
+      "max_abs": 16.0,
+      "mean": 4.917038690476191,
+      "min": 0.0,
+      "nan_count": 0,
+      "negative_infinity_count": 0,
+      "over_1e6_count": 0,
+      "positive_infinity_count": 0,
+      "quantiles_0_01_0_50_0_99": [
+        0.0,
+        1.0,
+        16.0
+      ],
+      "std_population": 6.083511686923238
+    },
+    "training_partition_count": 252
+  },
+  "label_order": [
+    0,
+    1
+  ],
+  "mapping": {
+    "digit 0": 0,
+    "digit 1": 1
+  },
+  "paper_preprocessing": {
+    "constant_feature_scale_behavior": "StandardScaler uses scale 1 for zero-variance features",
+    "fit_sample_count": 252,
+    "fitted_mean_min_max": [
+      0.0,
+      13.261904761904763
+    ],
+    "fitted_scale_min_max": [
+      0.06286896634029703,
+      7.36557110427385
+    ],
+    "method": "sklearn.preprocessing.StandardScaler, per feature, fit on outer training split only",
+    "test_transformed_unlabelled": {
+      "count": 6912,
+      "finite_count": 6912,
+      "max": 15.842979517754868,
+      "max_abs": 15.842979517754868,
+      "mean": 0.004488221341334814,
+      "min": -3.341486892339995,
+      "nan_count": 0,
+      "negative_infinity_count": 0,
+      "over_1e6_count": 0,
+      "positive_infinity_count": 0,
+      "quantiles_0_01_0_50_0_99": [
+        -1.9875519432277637,
+        0.0,
+        2.396893815950051
+      ],
+      "std_population": 0.8879075541447529
+    },
+    "test_used_for_fit": false,
+    "training_transformed": {
+      "count": 16128,
+      "finite_count": 16128,
+      "max": 15.842979517754868,
+      "max_abs": 15.842979517754868,
+      "mean": -8.8112938462314e-18,
+      "min": -3.992727957204402,
+      "nan_count": 0,
+      "negative_infinity_count": 0,
+      "over_1e6_count": 0,
+      "positive_infinity_count": 0,
+      "quantiles_0_01_0_50_0_99": [
+        -1.9853336821448495,
+        0.0,
+        2.255503503333351
+      ],
+      "std_population": 0.8838834764831844
+    }
+  },
+  "pixel_range": [
+    0.0,
+    16.0
+  ],
+  "positive_class": 1,
+  "sample_count": 360,
+  "split_id": "digits01-seed2026-e1b8b781ea09ee9f",
+  "task": "digits 0 vs 1"
+}

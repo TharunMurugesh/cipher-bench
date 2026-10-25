@@ -1,0 +1,91 @@
+{
+  "provenance_label": "published_reference",
+  "paper": "Deonise et al. (2025), Homomorphic Encryption for Privacy-preserving Machine Learning Inference",
+  "source_url": "https://doi.org/10.56082/annalsarsciinfo.2025.2.50",
+  "metrics_not_reported_by_paper": [
+    "positive_class_precision",
+    "positive_class_recall",
+    "positive_class_f1",
+    "macro_precision",
+    "macro_recall",
+    "macro_f1",
+    "confusion_matrix"
+  ],
+  "records": [
+    {
+      "task": "digits 0 vs 1",
+      "model": "Logistic Regression",
+      "execution_mode": "plaintext",
+      "accuracy": 1.0,
+      "latency_ms_per_sample": 0.05,
+      "throughput_samples_per_second": 21532.57,
+      "ciphertext_size_bytes": 0,
+      "test_support": 108,
+      "precision": "Not reported",
+      "recall": "Not reported",
+      "f1": "Not reported",
+      "source_location": "Table 1, journal page 57 (PDF page 8)"
+    },
+    {
+      "task": "digits 0 vs 1",
+      "model": "Logistic Regression + polynomial sigmoid",
+      "execution_mode": "CKKS",
+      "accuracy": 1.0,
+      "latency_ms_per_sample": 12.37,
+      "throughput_samples_per_second": 80.87,
+      "ciphertext_size_bytes": 432469,
+      "test_support": 108,
+      "precision": "Not reported",
+      "recall": "Not reported",
+      "f1": "Not reported",
+      "source_location": "Table 1, journal page 57 (PDF page 8)"
+    },
+    {
+      "task": "digits 0 vs 1",
+      "model": "Logistic Regression (quantized)",
+      "execution_mode": "BFV",
+      "accuracy": 1.0,
+      "latency_ms_per_sample": 2.55,
+      "throughput_samples_per_second": 391.64,
+      "ciphertext_size_bytes": 432468,
+      "test_support": 108,
+      "precision": "Not reported",
+      "recall": "Not reported",
+      "f1": "Not reported",
+      "source_location": "Table 1, journal page 57 (PDF page 8)"
+    },
+    {
+      "task": "digits 0 vs 1",
+      "model": "Conv + square + average pool + Logistic Regression",
+      "execution_mode": "plaintext",
+      "accuracy": 0.98,
+      "latency_ms_per_sample": 0.82,
+      "throughput_samples_per_second": 1222.42,
+      "ciphertext_size_bytes": 0,
+      "test_support": "Not reported",
+      "precision": "Not reported",
+      "recall": "Not reported",
+      "f1": "Not reported",
+      "source_location": "Table 2, journal page 58 (PDF page 9)"
+    },
+    {
+      "task": "digits 0 vs 1",
+      "model": "Encrypted convolution features + Logistic Regression",
+      "execution_mode": "CKKS",
+      "accuracy": 0.49,
+      "latency_ms_per_sample": 2055.09,
+      "throughput_samples_per_second": 0.49,
+      "ciphertext_size_bytes": 432526,
+      "test_support": "Not reported",
+      "precision": "Not reported",
+      "recall": "Not reported",
+      "f1": "Not reported",
+      "source_location": "Table 2, journal page 58 (PDF page 9)"
+    }
+  ],
+  "caveats": [
+    "The paper explicitly reports test support n=108 for its Logistic Regression results only.",
+    "The TinyCNN test support and exact data split are not reported; do not assign it the Logistic Regression support.",
+    "The 0.98 and 0.49 TinyCNN accuracies are copied as printed table values, not independently recomputed."
+  ]
+}
