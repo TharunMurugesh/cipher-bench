@@ -124,21 +124,14 @@ def run() -> dict:
     }
     _write_json(ARTIFACTS / "dataset_summary.json", dataset_summary)
     _write_json(ARTIFACTS / "splits.json", splits.to_dict(digits.source_indices))
-
-    # A: deterministic majority-class control.
     start = time.perf_counter()
     majority = MajorityClassifier().fit(y_train)
     majority_training_seconds = time.perf_counter() - start
     majority_predictions, majority_predict_seconds = _timed_predictions(majority, x_test)
-
-    # B: paper-style per-feature standardization, fitted only on the outer train partition.
     start = time.perf_counter()
     logistic = fit_logistic_regression(x_train_scaled, y_train, seed=SEED)
     logistic_training_seconds = time.perf_counter() - start
     logistic_predictions, logistic_predict_seconds = _timed_predictions(logistic, x_test_scaled)
-
-    # C: validation-only epoch selection, then refit from scratch for the selected epoch count
-    # on all outer training examples. The scaler used during selection is fit on inner-fit only.
     selection_preprocessing_start = time.perf_counter()
     selection_scaler = fit_standardizer(x[fit_idx])
     x_fit_scaled = selection_scaler.transform(x[fit_idx])
@@ -155,7 +148,6 @@ def run() -> dict:
         max_epochs=1000,
         patience=30,
     )
-    # Training for a fixed, validation-selected number of epochs on all outer-train data.
     final_model, refit_info = train_tinycnn_fixed_epochs(
         x_train_scaled,
         y_train,
@@ -165,8 +157,6 @@ def run() -> dict:
     )
     cnn_training_seconds = time.perf_counter() - start
     cnn_predictions, cnn_predict_seconds = _timed_predictions(final_model, x_test_scaled)
-
-    # D: separately exposed float64 polynomial graph, instantiated with the fitted CNN weights.
     graph = PolynomialGraph(final_model.parameters())
     graph_start = time.perf_counter()
     graph_predictions = graph.predict(x_test_scaled)
@@ -304,8 +294,6 @@ def run() -> dict:
 
 def train_tinycnn_fixed_epochs(train_x, train_y, *, epochs: int, seed: int, kernel_count: int):
     """Refit on the complete outer train set for the validation-selected epoch count."""
-    # Re-use the model's training loop without a validation-driven stop by passing the
-    # same training data as its monitor. The exact epoch count is fixed by validation.
     from models.tinycnn import _fit_fixed_epochs
 
     return _fit_fixed_epochs(train_x, train_y, epochs=epochs, seed=seed, kernel_count=kernel_count), {

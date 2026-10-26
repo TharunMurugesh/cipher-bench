@@ -50,7 +50,6 @@ class TestPhase3Ablations(unittest.TestCase):
         data_a, data_b = load_digit_pair(3, 8), load_digit_pair(3, 8)
         np.testing.assert_array_equal(data_a.labels, data_b.labels)
         self.assertEqual(set(np.unique(data_a.labels)), {0, 1})
-        # Positive class is digit 8 (mapped to 1), negative class is digit 3.
         source = load_digits()
         np.testing.assert_array_equal(data_a.labels, (source.target[data_a.source_indices] == 8).astype(np.int64))
         split_a = build_split_indices(data_a.labels, seed=3038)

@@ -8,7 +8,6 @@ class MajorityClassifier:
     def fit(self, labels: np.ndarray) -> "MajorityClassifier":
         labels = np.asarray(labels, dtype=np.int64)
         classes, counts = np.unique(labels, return_counts=True)
-        # In a tie, choose the lower label deterministically.
         self.label_ = int(classes[np.flatnonzero(counts == counts.max())[0]])
         self.classes_ = classes
         return self

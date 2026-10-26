@@ -12,7 +12,6 @@ class PolynomialGraph:
         self.head_bias = float(parameters["head_bias"])
 
     def logits(self, features: np.ndarray) -> np.ndarray:
-        # The operations are explicitly kept in NumPy float64 for CKKS parity work.
         values = np.asarray(features, dtype=np.float64)
         if not np.isfinite(values).all():
             raise ValueError("Polynomial graph input contains NaN or infinity")

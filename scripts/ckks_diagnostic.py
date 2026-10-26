@@ -171,7 +171,6 @@ def main() -> None:
                             partial_errors["square"] = error_summary(partial["square_decrypted"], expected["squared"])
                         record["partial_numerical_errors"] = partial_errors
                     config_result["exceptions"].append(record)
-                    # This failure is preserved in the output; stop this parameter set at the first failure.
                     break
         except Exception as exc:
             config_result["context_created"] = False

@@ -11,6 +11,8 @@ import { defineConfig, type Plugin } from "vite";
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 type RunState = { id: string; directory: string; status: "running" | "completed" | "failed"; logs: string[]; error?: string; child?: ChildProcessWithoutNullStreams };
 let currentRun: RunState | null = null;
+type BenchmarkState = { id: string; directory: string; task: string; status: "running" | "completed" | "failed"; logs: string[]; error?: string; child?: ChildProcessWithoutNullStreams; result?: unknown };
+let currentBenchmark: BenchmarkState | null = null;
 const artifactFiles = [
   "published_reference.json",
   "baseline_results.json",
@@ -73,9 +75,75 @@ function localExperimentRunner(): Plugin {
         if (run?.child) run.child.kill();
         if (run) void rm(run.directory, { recursive: true, force: true });
         currentRun = null;
+        const benchmark = currentBenchmark;
+        if (benchmark?.child) benchmark.child.kill();
+        if (benchmark) void rm(benchmark.directory, { recursive: true, force: true });
+        currentBenchmark = null;
       });
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://127.0.0.1");
+        if (url.pathname.startsWith("/api/benchmark/")) {
+          if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return reply(res, 403, { error: "Cross-origin requests are not allowed." });
+          if (url.pathname === "/api/benchmark/dataset" && req.method === "GET") {
+            const task = url.searchParams.get("task") ?? "digits_0_vs_1";
+            if (!["digits_0_vs_1", "digits_2_vs_7", "digits_3_vs_8", "digits_4_vs_9"].includes(task)) return reply(res, 400, { error: "Choose one of the supported digit datasets." });
+            const pyEnv = process.env.CIPHERBENCH_PYTHON;
+            const candidates = [pyEnv, join(rootDir, ".venv", "Scripts", "python.exe"), join(rootDir, ".venv", "bin", "python"), "python", "python3"].filter((item): item is string => Boolean(item));
+            const python = candidates.find((item) => item === pyEnv || item === "python" || item === "python3" || existsSync(item)) ?? "python";
+            const child = spawn(python, ["-u", "scripts/inspect_dataset.py", "--task", task], { cwd: rootDir, windowsHide: true });
+            let output = "";
+            let errorOutput = "";
+            child.stdout.setEncoding("utf8").on("data", (chunk: string) => { output += chunk; });
+            child.stderr.setEncoding("utf8").on("data", (chunk: string) => { errorOutput += chunk; });
+            child.on("error", (error) => reply(res, 500, { error: error.message }));
+            child.on("close", (code) => {
+              if (res.writableEnded) return;
+              if (code !== 0) return reply(res, 500, { error: errorOutput.trim() || "Could not inspect the selected dataset." });
+              try { return reply(res, 200, JSON.parse(output)); }
+              catch { return reply(res, 500, { error: "Dataset preview was not valid JSON." }); }
+            });
+            return;
+          }
+          if (url.pathname === "/api/benchmark/status" && req.method === "GET") {
+            const run = currentBenchmark;
+            return reply(res, 200, run ? { available: true, status: run.status, runId: run.id, task: run.task, logs: run.logs, error: run.error, result: run.result } : { available: true, status: "idle", logs: [] });
+          }
+          if (url.pathname === "/api/benchmark/run" && req.method === "POST") {
+            if (currentBenchmark?.status === "running") return reply(res, 409, { error: "A model training run is already in progress." });
+            const task = url.searchParams.get("task") ?? "digits_0_vs_1";
+            if (!["digits_0_vs_1", "digits_2_vs_7", "digits_3_vs_8", "digits_4_vs_9"].includes(task)) return reply(res, 400, { error: "Choose one of the supported digit tasks." });
+            if (currentBenchmark) await rm(currentBenchmark.directory, { recursive: true, force: true });
+            const id = randomUUID();
+            const directory = await mkdtemp(join(tmpdir(), "cipherbench-model-lab-"));
+            const run: BenchmarkState = { id, directory, task, status: "running", logs: ["Training the Paper Model and CipherBench Model on the selected dataset.", "Both models use the same stratified held-out test split."] };
+            currentBenchmark = run;
+            const pyEnv = process.env.CIPHERBENCH_PYTHON;
+            const candidates = [pyEnv, join(rootDir, ".venv", "Scripts", "python.exe"), join(rootDir, ".venv", "bin", "python"), "python", "python3"].filter((item): item is string => Boolean(item));
+            const python = candidates.find((item) => item === pyEnv || item === "python" || item === "python3" || existsSync(item)) ?? "python";
+            try {
+              const child = spawn(python, ["-u", "scripts/run_dashboard_benchmark.py", "--task", task, "--output", join(directory, "result.json")], { cwd: rootDir, env: { ...process.env, PYTHONUNBUFFERED: "1" }, windowsHide: true });
+              run.child = child;
+              const collect = (chunk: Buffer) => { run.logs.push(...chunk.toString("utf8").split(/\r?\n/).filter(Boolean)); if (run.logs.length > 40) run.logs.splice(0, run.logs.length - 40); };
+              child.stdout.on("data", collect);
+              child.stderr.on("data", collect);
+              child.on("error", (error) => { run.status = "failed"; run.error = error.message; run.child = undefined; });
+              child.on("close", async (code) => {
+                run.child = undefined;
+                if (code !== 0) { run.status = "failed"; run.error = `Training process exited with code ${code}. Review the run log.`; return; }
+                try { run.result = JSON.parse(await readFile(join(directory, "result.json"), "utf8")); run.status = "completed"; run.logs.push("Training and held-out evaluation completed successfully."); }
+                catch (error) { run.status = "failed"; run.error = error instanceof Error ? error.message : "Could not load the benchmark result."; }
+              });
+            } catch (error) { run.status = "failed"; run.error = error instanceof Error ? error.message : "Unable to start the Python runner."; }
+            return reply(res, 202, { available: true, status: run.status, runId: run.id, task: run.task, logs: run.logs });
+          }
+          if (url.pathname === "/api/benchmark/run" && req.method === "DELETE") {
+            if (currentBenchmark?.status === "running") return reply(res, 409, { error: "Wait for training to finish before clearing its results." });
+            if (currentBenchmark) await rm(currentBenchmark.directory, { recursive: true, force: true });
+            currentBenchmark = null;
+            return reply(res, 200, { status: "idle" });
+          }
+          return reply(res, 404, { error: "Unknown model-lab endpoint." });
+        }
         if (!url.pathname.startsWith("/api/demo/")) return next();
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return reply(res, 403, { error: "Cross-origin requests are not allowed." });
         if (url.pathname === "/api/demo/status" && req.method === "GET") return reply(res, 200, state());

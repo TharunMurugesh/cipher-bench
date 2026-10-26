@@ -48,7 +48,9 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite and select **Experiments & Reproducibility**. The **Start training + test** action runs Phase 3 model selection, CKKS validation diagnostics, and the frozen held-out evaluation. It requires the Python environment described below. Run outputs are isolated in the operating system's temporary directory; **Clear temporary run data** deletes that run and restores the checked-in results. The local run API is available only in Vite development mode.
+Open the local address printed by Vite. The default **Model Lab** page trains the selected model pair and evaluates both on the same held-out split. Run outputs stay in temporary storage; **Clear results** removes the latest Model Lab run. Model Lab training is available in Vite development mode and requires the Python environment described below. The separate Phase 3 research pipeline can still be run with `python scripts/run_phase3_ablation.py`.
+
+The default **Model Lab** page lets evaluators train the paper-style reconstructed model and the optimized CipherBench model separately on the same held-out split. Choose among digits 0 vs 1, 2 vs 7, 3 vs 8, and 4 vs 9. **Inspect dataset** shows dataset details and class counts; the source link opens scikit-learn's dataset documentation, and the CSV button downloads every row. The four CSV files are included with the static site for inspection. The paper model is a local retraining of the paper-style architecture, not the authors' original weights.
 
 GitHub Pages is static hosting and cannot start Python jobs. Its dashboard links users to the local setup; use the deployed site to inspect saved results, and use `npm run dev` when you need to run a fresh training and test cycle.
 

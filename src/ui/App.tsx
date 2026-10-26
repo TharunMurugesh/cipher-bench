@@ -1,16 +1,76 @@
 import { useEffect, useMemo, useState } from "react";
-import { baselineArchitecture, candidateArchitecture } from "../data/architecture";
-import { executionModes, filterRecords, formatDeltaPp, formatNumber, formatPercent, primaryTask, secondaryTask, toCsv, exportJson } from "../data/compare";
+import { executionModes, filterRecords, formatPercent, primaryTask, secondaryTask } from "../data/compare";
 import { loadDashboardData } from "../data/transform";
 import type { DashboardData, ExperimentRecord, MetricSet } from "../data/types";
 
-type Page = "Overview" | "Architecture & Ablation" | "Experiments & Reproducibility";
-type DemoRun = { available: boolean; status: "idle" | "running" | "completed" | "failed"; runId?: string; logs: string[]; error?: string };
+type Page = "Model Lab" | "Results" | "Optimization & Architecture";
+type BenchmarkResult = { run_id: string; completed_at: string; task: string; dataset: string; class_mapping: string; split: { method: string; seed: number; fit_samples: number; validation_samples: number; test_samples: number }; models: Record<string, { name: string; description: string; metrics: Record<string, unknown>; training: { epochs: number; best_epoch: number; seconds: number; fit_samples: number; validation_samples: number; test_samples: number; range_bound: number | null; range_penalty: number }; } > };
+type BenchmarkRun = { available: boolean; status: "idle" | "running" | "completed" | "failed"; runId?: string; task?: string; logs: string[]; error?: string; result?: BenchmarkResult };
+type DatasetInfo = { dataset: string; task: string; class_mapping: Record<string, number>; source_url: string; description: string; sample_count: number; feature_count: number; class_counts: Record<string, number>; columns: string[]; preview: (number | string)[][]; csv: string };
+const digitPairs: Record<string, [number, number]> = { digits_0_vs_1: [0, 1], digits_2_vs_7: [2, 7], digits_3_vs_8: [3, 8], digits_4_vs_9: [4, 9] };
+function datasetInfoFromCsv(task: string, csv: string): DatasetInfo {
+  const rows = csv.trim().split(/\r?\n/).map((line) => line.split(",").map((cell) => Number(cell)));
+  const columns = csv.trim().split(/\r?\n/, 1)[0].split(",");
+  const [low, high] = digitPairs[task];
+  const dataRows = rows.slice(1);
+  return { dataset: "scikit-learn Digits", task, class_mapping: { [String(low)]: 0, [String(high)]: 1 }, source_url: "https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_digits.html", description: "8×8 grayscale handwritten digit images. Pixel values are integers from 0 to 16. class_label is the binary label used by the benchmark; digit is the original digit.", sample_count: dataRows.length, feature_count: 64, class_counts: { "0": dataRows.filter((row) => row[1] === 0).length, "1": dataRows.filter((row) => row[1] === 1).length }, columns, preview: dataRows.slice(0, 10), csv };
+}
 const pages: { title: Page; icon: string; eyebrow: string }[] = [
-  { title: "Overview", icon: "◫", eyebrow: "RESULTS" },
-  { title: "Architecture & Ablation", icon: "⌘", eyebrow: "METHOD" },
-  { title: "Experiments & Reproducibility", icon: "◴", eyebrow: "RUNS" },
+  { title: "Model Lab", icon: "◉", eyebrow: "TRAIN + EVALUATE" },
+  { title: "Results", icon: "◫", eyebrow: "RESULTS" },
+  { title: "Optimization & Architecture", icon: "⇄", eyebrow: "MODEL DESIGN" },
 ];
+
+function BenchmarkMetric({ label, value, help }: { label: string; value: unknown; help?: string }) {
+  const numeric = typeof value === "number" ? value : null;
+  return <div className="benchmark-metric"><span>{label}</span><strong>{numeric === null ? "Not reported" : formatPercent(numeric)}</strong>{help && <small>{help}</small>}</div>;
+}
+
+function ModelLab({ run, busy, task, onTask, onRun, onClear }: { run: BenchmarkRun | null; busy: boolean; task: string; onTask: (task: string) => void; onRun: () => void; onClear: () => void }) {
+  const [modelTab, setModelTab] = useState("paper_model");
+  const [datasetInfo, setDatasetInfo] = useState<DatasetInfo | null>(null);
+  const [datasetInfoError, setDatasetInfoError] = useState("");
+  const result = run?.result?.task === task ? run.result : undefined;
+  const model = result?.models[modelTab];
+  const metrics = model?.metrics ?? {};
+  const confusion = metrics.confusion_matrix as number[][] | undefined;
+  const taskLabel = `Digits ${task.replace("digits_", "").replace("_vs_", " vs ")}`;
+  useEffect(() => {
+    let active = true;
+    setDatasetInfo(null);
+    setDatasetInfoError("");
+    fetch(`/api/benchmark/dataset?task=${encodeURIComponent(task)}`, { cache: "no-store" })
+      .then(async (response) => { if (response.ok) return response.json() as Promise<DatasetInfo>; const staticResponse = await fetch(`${import.meta.env.BASE_URL}datasets/${task}.csv`); if (!staticResponse.ok) throw new Error("Could not load the dataset preview."); return datasetInfoFromCsv(task, await staticResponse.text()); })
+      .then((info) => { if (active) setDatasetInfo(info); })
+      .catch((error) => { if (active) setDatasetInfoError(error instanceof Error ? error.message : "Dataset preview is unavailable."); });
+    return () => { active = false; };
+  }, [task]);
+  const downloadDataset = () => {
+    if (!datasetInfo) return;
+    const url = URL.createObjectURL(new Blob([datasetInfo.csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${task}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  };
+  return <>
+    <section className="page-intro model-lab-intro"><div><div className="eyebrow">TRAINING + EVALUATION</div><h1>Model Lab</h1><p>Train both models on the same dataset and compare their results on unseen test examples.</p></div><div className="model-lab-pick"><label htmlFor="benchmark-task">Choose dataset</label><select id="benchmark-task" value={task} onChange={(event) => onTask(event.target.value)} disabled={run?.status === "running"}><option value="digits_0_vs_1">Digits 0 vs 1</option><option value="digits_2_vs_7">Digits 2 vs 7</option><option value="digits_3_vs_8">Digits 3 vs 8</option><option value="digits_4_vs_9">Digits 4 vs 9</option></select></div></section>
+    <details className="dataset-inspector" open><summary>Inspect dataset <span>Class balance and links to the full data</span></summary><div className="dataset-inspector-body">{datasetInfo ? <><div className="dataset-summary"><div><b>{datasetInfo.dataset} · {taskLabel}</b><p>{datasetInfo.description}</p></div><div className="dataset-actions"><a className="button subtle" href={datasetInfo.source_url} target="_blank" rel="noreferrer">Dataset source ↗</a><button className="button subtle" onClick={downloadDataset}>Download all rows · CSV</button></div></div><div className="dataset-facts"><span><b>{datasetInfo.sample_count.toLocaleString()}</b> examples</span><span><b>{datasetInfo.feature_count}</b> pixel features</span><span><b>Class 0:</b> {datasetInfo.class_counts["0"]}</span><span><b>Class 1:</b> {datasetInfo.class_counts["1"]}</span><span><b>Mapping:</b> {Object.entries(datasetInfo.class_mapping).map(([digit, label]) => `${digit} → ${label}`).join(" · ")}</span></div></> : <div className="dataset-loading">{datasetInfoError || "Loading dataset details…"} <a href="https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_digits.html" target="_blank" rel="noreferrer">View dataset documentation ↗</a></div>}</div></details>
+    <section className="panel benchmark-start"><div><div className="eyebrow">ONE CLICK RUN</div><h2>{run?.status === "running" ? "Training both models…" : run?.status === "completed" ? "Evaluation complete" : "Train and evaluate the models"}</h2><p>The same training, validation, and held-out test split is used for both models. Metrics below are calculated from the test split only.</p></div><div className="benchmark-start-actions"><button className="button primary" disabled={busy || run?.status === "running" || !run?.available} onClick={onRun}>{run?.status === "running" || busy ? "Training…" : "Train + evaluate"}</button>{result && <button className="button subtle" disabled={busy} onClick={onClear}>Clear results</button>}</div></section>
+    {!run?.available && <div className="callout caution-callout">Training runs on your local dashboard because GitHub Pages cannot start Python jobs. Start the app with <code>npm run dev</code> to train models here.</div>}
+    {run?.error && <div className="demo-error benchmark-error" role="alert">{run.error}</div>}
+    {run?.status === "running" && <div className="panel benchmark-progress"><span className="live-dot" />Training the paper-style model and searching the optimized model settings. This can take a few minutes.</div>}
+    {run?.logs?.length && (run.status === "running" || run.status === "failed") ? <details className="demo-log benchmark-log" open><summary>Run progress</summary><pre>{run.logs.join("\n")}</pre></details> : null}
+    <section className="benchmark-model-panel panel">
+      <div className="benchmark-panel-head"><div><div className="eyebrow">MODEL RESULTS · {result ? taskLabel : "READY WHEN YOU RUN"}</div><h2>{model?.name ?? "Choose a model tab"}</h2><p>{model?.description ?? "Train the models to show their held-out test metrics here."}</p></div>{result && <span className="status-pill measured"><i />Test set · {result.split.test_samples} samples</span>}</div>
+      <div className="benchmark-tabs" role="tablist" aria-label="Model results">
+        <button role="tab" aria-selected={modelTab === "paper_model"} className={modelTab === "paper_model" ? "active" : ""} onClick={() => setModelTab("paper_model")}>Paper Model <small>Base model</small></button>
+        <button role="tab" aria-selected={modelTab === "cipherbench_model"} className={modelTab === "cipherbench_model" ? "active" : ""} onClick={() => setModelTab("cipherbench_model")}>CipherBench Model <small>Optimized model</small></button>
+      </div>
+      {!result ? <div className="empty-state benchmark-empty">Select a dataset, then choose <b>Train + evaluate</b>. The two model tabs will show separate results.</div> : model ? <>
+        <div className="benchmark-metrics-grid"><BenchmarkMetric label="Accuracy" value={metrics.accuracy} help="Correct predictions"/><BenchmarkMetric label="Precision" value={(metrics.positive_class_metrics as Record<string, unknown> | undefined)?.precision} help="Positive class"/><BenchmarkMetric label="Recall (R1)" value={(metrics.positive_class_metrics as Record<string, unknown> | undefined)?.recall} help="Recall for class 1"/><BenchmarkMetric label="F1 score" value={(metrics.positive_class_metrics as Record<string, unknown> | undefined)?.f1} help="Positive class"/><BenchmarkMetric label="ROC-AUC" value={metrics.roc_auc} help="Ability to separate the two classes"/></div>
+        <div className="benchmark-detail-grid"><div className="benchmark-confusion"><h3>Confusion matrix</h3><p>Rows are the actual class. Columns are the model’s prediction.</p><div className="confusion-wrap"><div className="confusion-axis">Predicted class</div><div className="confusion-grid"><div className="confusion-side">Actual</div><div className="confusion-corner"/><div className="confusion-colhead">0</div><div className="confusion-colhead">1</div><div className="confusion-rowhead">0</div>{[0,1].map((col)=><div key={`0-${col}`} className={`confusion-cell ${col===0?"tn":"fp"}`}>{confusion?.[0]?.[col] ?? "—"}</div>)}<div className="confusion-rowhead">1</div>{[0,1].map((col)=><div key={`1-${col}`} className={`confusion-cell ${col===0?"fn":"tp"}`}>{confusion?.[1]?.[col] ?? "—"}</div>)}</div><div className="confusion-legend"><span><i className="true"/>Correct</span><span><i className="false"/>Incorrect</span></div></div></div><div className="benchmark-run-info"><h3>How this run was made</h3><p><b>Dataset:</b> {result.dataset} · {result.class_mapping}</p><p><b>Training examples:</b> {model.training.fit_samples}</p><p><b>Validation examples:</b> {model.training.validation_samples}</p><p><b>Test examples:</b> {model.training.test_samples}</p><p><b>Training time:</b> {model.training.seconds}s</p>{modelTab === "cipherbench_model" && <p><b>Selected range settings:</b> {model.training.range_bound} · strength {model.training.range_penalty}</p>}<small>Test examples were kept separate from model training and settings selection.</small></div></div>
+      </> : <div className="empty-state benchmark-empty">No results are available for this model.</div>}
+    </section>
+  </>;
+}
 
 function Status({ value }: { value: string }) {
   const kind = value.toLowerCase().includes("published") || value.toLowerCase().includes("paper") ? "published" : value.toLowerCase().includes("validation") || value.toLowerCase().includes("provisional") ? "provisional" : value.toLowerCase().includes("unavailable") ? "unavailable" : "measured";
@@ -66,23 +126,6 @@ function ClassMetrics({ metrics }: { metrics: MetricSet }) {
   return <table className="mini-table"><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead><tbody>{Object.entries(metrics.perClass).map(([label, value]) => <tr key={label}><td>{label}</td><td>{formatPercent(value.precision)}</td><td>{formatPercent(value.recall)}</td><td>{formatPercent(value.f1)}</td><td>{value.support ?? "Unavailable"}</td></tr>)}</tbody></table>;
 }
 
-function ArchitectureDiagram({ stages }: { stages: ReturnType<typeof candidateArchitecture> }) {
-  return <div className="architecture-flow" aria-label="Model computation graph">
-    {stages.map((stage, i) => <div className="stage-wrap" key={stage.id}>
-      <div className={`stage-card ${stage.execution}`}>
-        <div className="stage-type">{stage.execution === "encrypted" ? "CIPHERTEXT" : stage.execution === "training-only" ? "TRAINING ONLY" : "PLAINTEXT"}</div>
-        <strong>{stage.title}</strong><span>{stage.detail}</span>
-      </div>
-      {i < stages.length - 1 && <div className="flow-arrow" aria-hidden="true">→</div>}
-    </div>)}
-  </div>;
-}
-
-function TrainingObjective({ stage }: { stage: ReturnType<typeof candidateArchitecture>[number] | undefined }) {
-  if (!stage) return null;
-  return <div className="training-objective"><span>TRAINING OBJECTIVE</span><b>{stage.title}</b><p>{stage.detail}</p><small>Applied while fitting the candidate weights only; not a node in the inference graph.</small></div>;
-}
-
 function Overview({ data, task, mode, variant, onTask, onMode, onVariant, selected, onSelect }: { data: DashboardData; task: string; mode: string; variant: string; onTask: (v: string) => void; onMode: (v: string) => void; onVariant: (v: string) => void; selected: ExperimentRecord | undefined; onSelect: (r: ExperimentRecord) => void }) {
   const [chartMetric, setChartMetric] = useState<CompareMetric>("accuracy");
   const filtered = filterRecords(data.records, task, mode).filter((r) => !r.variant.includes("smoke"));
@@ -133,133 +176,55 @@ function Overview({ data, task, mode, variant, onTask, onMode, onVariant, select
   </>;
 }
 
-function AblationTable({ records, task }: { records: ExperimentRecord[]; task: string }) {
-  const rows = records.filter((r) => r.task === task && r.sourceArtifact.includes("phase3_ablation.json"));
-  const fidelity = records.filter((r) => r.executionMode === "CKKS validation partial path");
-  const getCkksRecord = (variant: string) => {
-    if (!variant.startsWith("A0") && !variant.startsWith("A3")) return undefined;
-    const candidate = variant.startsWith("A3");
-    return fidelity.find((r) => candidate ? r.variant.includes("A3") && r.variant.includes("mask_dot") : r.variant.includes("A0") && r.variant.includes("mask_dot"));
-  };
-  const getFidelity = (variant: string) => {
-    const rec = getCkksRecord(variant);
-    return rec?.numericalErrors?.logit;
-  };
-  return <div className="table-scroll"><table className="data-table ablation-table"><thead><tr><th>Variant</th><th>Accuracy</th><th>Δ Acc.</th><th>Precision</th><th>Δ Prec.</th><th>Recall</th><th>Δ Recall</th><th>F1</th><th>Δ F1</th><th>CKKS logit MAE¹</th><th>CKKS mask mean seconds²</th><th>Mode / run</th></tr></thead><tbody>{rows.map((r) => {
-    const error = getFidelity(r.variant);
-    const cost = getCkksRecord(r.variant)?.timings.total_until_plaintext_prediction;
-    return <tr key={r.id}><td><strong>{r.variant}</strong><small>{String(r.configuration.preprocessing ?? "")}{r.configuration.range_bound ? ` · B=${String(r.configuration.range_bound)}, λ=${String(r.configuration.range_penalty_lambda)}` : ""}</small></td>
-      <td>{formatPercent(r.metrics.accuracy)}</td><td>{formatDeltaPp(r.deltasVsA0?.accuracy)}</td><td>{formatPercent(r.metrics.precision)}</td><td>{formatDeltaPp(r.deltasVsA0?.precision)}</td><td>{formatPercent(r.metrics.recall)}</td><td>{formatDeltaPp(r.deltasVsA0?.recall)}</td><td>{formatPercent(r.metrics.f1)}</td><td>{formatDeltaPp(r.deltasVsA0?.f1)}</td><td>{error ? `${error.meanMae === null ? "Unavailable" : error.meanMae.toExponential(2)} mean` : "Unavailable"}</td><td>{cost === null || cost === undefined ? "Unavailable" : `${formatNumber(cost, 4)} s`}</td><td><Status value={r.status} /><small>{r.runId ?? "Run unavailable"}</small></td></tr>;
-  })}</tbody></table><div className="table-note">¹ CKKS fidelity and ² measured CKKS partial-path time are available only for A0/A3 on the primary validation set; the path includes diagnostic decryption before a plaintext head. These are not test accuracy or end-to-end latency values. Plaintext inference time was not recorded. A4 threshold-tuned row is included when present in source artifact.</div></div>;
-}
-
-function ArchitecturePage({ data, task, mode, selectedRecord, onSelectRecord }: { data: DashboardData; task: string; mode: string; selectedRecord: ExperimentRecord | undefined; onSelectRecord: (record: ExperimentRecord) => void }) {
-  const candidates = data.records.filter((r) => r.task === task && r.sourceArtifact.includes("phase3_ablation.json") && r.variant.startsWith("A"));
-  const candidate = selectedRecord && selectedRecord.task === task && selectedRecord.sourceArtifact.includes("phase3_ablation.json") ? selectedRecord : candidates.find((r) => r.variant.startsWith("A3"));
-  const conf = candidate?.configuration ?? {};
-  const allStages = candidateArchitecture(String(conf.preprocessing ?? "pixel_0_1"), typeof conf.range_bound === "number" ? conf.range_bound : null, typeof conf.range_penalty_lambda === "number" ? conf.range_penalty_lambda : 0);
-  const stages = allStages.filter((stage) => stage.execution !== "training-only");
-  const rangeObjective = allStages.find((stage) => stage.execution === "training-only");
-  const baseline = baselineArchitecture;
-  const a1 = candidates.find((r) => r.variant.startsWith("A1")); const a3 = candidates.find((r) => r.variant.startsWith("A3"));
-  const a2 = candidates.find((r) => r.variant.startsWith("A2"));
-  const tied = Boolean(a1 && a3 && a1.metrics.accuracy === a3.metrics.accuracy);
-  const a3Range = objValue(a3?.activationDiagnostics, "pre_square");
-  const a2Range = objValue(a2?.activationDiagnostics, "pre_square");
+function ModelComparisonPage() {
+  const baseSteps = ["8×8 digit image", "StandardScaler input", "3×3 convolution", "Square activation", "2×2 average pooling", "Linear classification head"];
+  const optimizedSteps = ["8×8 digit image", "Fixed pixel scaling · divide by 16", "3×3 convolution", "Square activation", "2×2 average pooling", "Linear classification head"];
+  const techniques = [
+    { title: "Fixed pixel scaling", detail: "Maps pixel intensities from 0–16 into 0–1 with a simple divide-by-16 step." },
+    { title: "Range-aware training", detail: "Adds a soft training penalty when convolution activations exceed a selected range. It does not add an inference layer." },
+    { title: "Validation-based selection", detail: "Chooses range settings using validation examples, then reports performance on a separate test split." },
+  ];
   return <>
-    <section className="page-intro"><div><div className="eyebrow">METHOD / COMPUTATION GRAPH</div><h1>Architecture & Ablation</h1><p>Explore where the reconstructed graph leaves ciphertext and how each controlled change performed on the selected task.</p></div><div className="intro-badge">Task: {task} <span>·</span> Mode filter: {mode}</div></section>
-    <section className="panel architecture-panel"><div className="panel-heading"><div><div className="eyebrow">A0 / RECONSTRUCTED BASELINE</div><h2>Feature extraction, then plaintext classification</h2></div><span className="boundary-key"><i className="key-encrypted" />Encrypted <i className="key-plain" />Plaintext</span></div><ArchitectureDiagram stages={baseline} /><div className="warning-line"><span>!</span><p>Decrypted pooled features are passed to a plaintext Logistic Regression head. The diagram reflects the reported CKKS path; local Phase 3 classification ablations were evaluated in plaintext.</p></div></section>
-    <section className="panel architecture-panel"><div className="panel-heading"><div><div className="eyebrow">RC-TINYCNN / SELECTED CONFIGURATION</div><h2>{candidate?.variant ?? "No candidate selected"}</h2></div><label className="inline-select">Candidate<select value={candidate?.id ?? ""} onChange={(e) => { const match = candidates.find((r) => r.id === e.target.value); if (match) onSelectRecord(match); }}>{candidates.map((r) => <option key={r.id} value={r.id}>{r.variant}</option>)}</select></label></div><ArchitectureDiagram stages={stages} /><TrainingObjective stage={rangeObjective} /><div className="boundary-note"><b>Execution boundary:</b> This shows the graph placement used by the CKKS diagnostics. Phase 3 classification ablations were evaluated in plaintext; CKKS parity measurements exist separately for A0/A3 on primary validation, and both leave the head plaintext.</div></section>
-    <section className="panel"><div className="panel-heading"><div><div className="eyebrow">CONTROLLED CHANGES</div><h2>Ablation comparison</h2><p className="subtext">Test metrics from the saved ablation run. Deltas are percentage points relative to A0.</p></div><Status value="Measured" /></div><AblationTable records={data.records} task={task} />
-      {tied && <div className="callout violet-callout"><b>A1 and A3 tied at {formatPercent(a3?.metrics.accuracy ?? null)} on this task.</b> The combined candidate did not add measurable accuracy beyond pixel scaling alone.</div>}
+    <section className="page-intro"><div><div className="eyebrow">MODEL DESIGN</div><h1>How CipherBench is optimized</h1><p>Compare the paper-style base model with the modified model and see what changed.</p></div></section>
+    <div className="model-comparison-note"><span>Same core CNN</span><p>The convolution, square activation, pooling, and classification head stay the same. CipherBench changes input scaling and adds a training-only range penalty.</p></div>
+    <section className="model-architecture-compare" aria-label="Base and modified model architecture comparison">
+      {[{ title: "Base Model", caption: "Paper-style reconstruction", steps: baseSteps, tone: "base" }, { title: "CipherBench Model", caption: "Modified and optimized", steps: optimizedSteps, tone: "modified" }].map((column) => <article className={`architecture-compare-card ${column.tone}`} key={column.title}><div className="architecture-card-heading"><div><span>{column.caption}</span><h2>{column.title}</h2></div><span className="architecture-badge">{column.tone === "base" ? "REFERENCE" : "OPTIMIZED"}</span></div><ol className="architecture-steps">{column.steps.map((step, index) => <li key={step}><span className="architecture-step-number">{index + 1}</span><div><b>{step}</b>{index === 0 ? <small>64 image values</small> : index === 1 ? <small>{column.tone === "base" ? "Per-feature scaling" : "Pixels ÷ 16 → [0,1]"}</small> : null}</div></li>)}</ol></article>)}
     </section>
-    <section className="content-grid component-grid"><div className="panel"><div className="eyebrow">COMPONENT DETAIL</div><h2>Why each ablation exists</h2><div className="detail-list">
-      <div><b>A0 · StandardScaler</b><p>Control matching the plaintext baseline reconstruction. Per-feature means/scales are fitted on training rows. Reference range; no range loss.</p><small>Observed: {formatPercent(candidates.find((r) => r.variant.startsWith("A0"))?.metrics.accuracy)} accuracy.</small></div>
-      <div><b>A1 · Pixel scaling</b><p>Fixed raw pixel /16 maps the documented 0–16 intensity domain into [0,1]. Tests whether input calibration avoids amplified standardized border features.</p><small>Observed: {formatPercent(a1?.metrics.accuracy)}. Same classification score as A3 here.</small></div>
-      <div><b>A2 · Range penalty</b><p>Squared hinge loss penalizes convolution pre-activations outside selected B. B and λ are selected only using development validation data.</p><small>Observed: {formatPercent(a2?.metrics.accuracy)}; max |z| {formatNumber(safeNum(objValue(a2Range, "max_abs")), 2)}, outside B {formatPercent(safeNum(objValue(a2Range, "bound_violation_rate")))}. Penalty is soft, not a hard bound.</small></div>
-      <div><b>A3 · RC-TinyCNN</b><p>Combines pixel scaling and the selected range penalty; same square activation and pooling structure.</p><small>Observed: {formatPercent(a3?.metrics.accuracy)}; max |z| {formatNumber(safeNum(objValue(a3Range, "max_abs")), 2)}, outside B {formatPercent(safeNum(objValue(a3Range, "bound_violation_rate")))}. No incremental gain beyond A1 in this run.</small></div>
-      <div><b>A4 · Threshold</b><p>Threshold is selected to maximize validation positive-class F1, then validation accuracy, with a tie preference nearest zero.</p><small>Observed threshold: {formatNumber(Number(objValue(candidate?.configuration.thresholdSelection, "threshold_logit")), 2)}. Report separately from architecture changes.</small></div>
-    </div></div><div className="panel"><div className="eyebrow">INTERPRETATION</div><h2>Accuracy ≠ CKKS agreement</h2><p className="body-copy">Classification accuracy compares predictions with ground-truth labels. CKKS agreement compares encrypted-path predictions with the same model’s float64 polynomial graph. A path can agree perfectly with plaintext and still misclassify; agreement is a numerical fidelity check, not an accuracy score.</p><div className="pair-stat"><span>CKKS agreement · primary validation</span><strong>38 / 38</strong></div><div className="pair-stat"><span>CKKS agreement · held-out test</span><strong>108 / 108</strong></div><div className="callout caution-callout">The pooled feature vector is decrypted before the head. These are partial encrypted-inference measurements.</div></div></section>
-    <div className="citation-line"><span>Values from {data.phase3RunId}; no training or test evaluation was triggered by this page.</span><a href="https://github.com/TharunMurugesh/cipher-bench/tree/main/artifacts">Inspect saved artifacts ↗</a></div>
+    <section className="optimization-section"><div className="eyebrow">WHAT WAS OPTIMIZED</div><h2>Three focused changes</h2><div className="optimization-cards">{techniques.map((technique, index) => <article className="optimization-card" key={technique.title}><span className="optimization-number">0{index + 1}</span><div><h3>{technique.title}</h3><p>{technique.detail}</p></div></article>)}</div></section>
+    <p className="model-comparison-footnote">The base model is a local retraining of the paper-style architecture; the paper’s original model weights and exact training recipe were not provided.</p>
   </>;
 }
-
-function objValue(value: unknown, key: string): unknown { return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : null; }
-function safeNum(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) ? value : null; }
-
-function ExperimentsPage({ data, task, mode, selectedId, onSelectId, run, busy, onRun, onClear }: { data: DashboardData; task: string; mode: string; selectedId: string; onSelectId: (id: string) => void; run: DemoRun | null; busy: boolean; onRun: () => void; onClear: () => void }) {
-  const [scope, setScope] = useState("All records");
-  const [exportMessage, setExportMessage] = useState("");
-  const filtered = useMemo(() => filterRecords(data.records, task, mode), [data.records, task, mode]);
-  const shown = scope === "All records" ? filtered : filtered.filter((r) => r.provenance === scope);
-  const selected = shown.find((r) => r.id === selectedId) ?? shown[0];
-  const ckksOnly = selected?.executionMode.includes("CKKS") ?? false;
-  function download(filename: string, content: string, type: string) {
-    const url = URL.createObjectURL(new Blob([content], { type })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); setExportMessage(`${filename} exported from the filtered artifact records.`);
-  }
-  return <>
-    <section className="page-intro"><div><div className="eyebrow">RUNS / REPRODUCIBILITY</div><h1>Experiments & Reproducibility</h1><p>Every result links back to its artifact, split, configuration, and execution boundary.</p></div><div className="intro-actions"><button className="button subtle" onClick={() => download("cipherbench-experiments.json", exportJson(shown), "application/json")}>↓ Export JSON</button><button className="button subtle" onClick={() => download("cipherbench-experiments.csv", toCsv(shown), "text/csv")}>↓ Export CSV</button></div></section>
-    <section className="run-toolbar"><div className="segmented"><button className={scope === "All records" ? "active" : ""} onClick={() => setScope("All records")}>All records</button><button className={scope === "Measured" ? "active" : ""} onClick={() => setScope("Measured")}>Measured</button><button className={scope === "Published" ? "active" : ""} onClick={() => setScope("Published")}>Published</button></div><span>{shown.length} records · filters inherited from task and execution mode</span></section>
-    {exportMessage && <div className="inline-success" role="status">{exportMessage}</div>}
-    <section className="panel run-table-panel"><div className="table-scroll"><table className="data-table run-table"><thead><tr><th>Variant / run</th><th>Task</th><th>Execution mode</th><th>Accuracy</th><th>Status</th><th>Split / seed</th><th>Source</th></tr></thead><tbody>{shown.map((r) => <tr key={r.id} className={r.id === selected?.id ? "selected-row" : ""} onClick={() => onSelectId(r.id)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onSelectId(r.id); }}><td><strong>{r.variant}</strong><small>{r.runId ?? "Paper reference"}</small></td><td>{r.task}</td><td>{r.executionMode}</td><td>{formatPercent(r.metrics.accuracy)}</td><td><Status value={r.provenance} /><small>{r.status}</small></td><td>{r.splitLabel}<small>Seed: {r.seed ?? "Not reported"}</small></td><td><code>{r.sourceArtifact}</code></td></tr>)}</tbody></table>{!shown.length && <div className="empty-state">No experiment records match the selected filters.</div>}</div></section>
-    {selected && <section className="content-grid run-detail-grid"><div className="panel"><div className="panel-heading"><div><div className="eyebrow">RESULT DETAIL</div><h2>{selected.variant}</h2></div><Status value={selected.status} /></div>
-        <div className="detail-metrics"><Metric label="Accuracy" value={formatPercent(selected.metrics.accuracy)} helper={`Support ${selected.metrics.support ?? selected.splitLabel}`} /><Metric label="Positive precision" value={formatPercent(selected.metrics.precision)} helper="Positive class is task mapping" /><Metric label="Recall" value={formatPercent(selected.metrics.recall)} helper="Positive class" /><Metric label="F1" value={formatPercent(selected.metrics.f1)} helper="Positive class" /></div><div className="macro-metrics detail-macro"><span>Macro averages</span><b>P {formatPercent(selected.metrics.macroPrecision)}</b><b>R {formatPercent(selected.metrics.macroRecall)}</b><b>F1 {formatPercent(selected.metrics.macroF1)}</b></div>
-        <div className="detail-columns"><div><h3>Confusion matrix</h3><Confusion metrics={selected.metrics} /><ClassMetrics metrics={selected.metrics} /></div><div><h3>Configuration & provenance</h3><div className="selected-info"><p><span>Run ID</span>{selected.runId ?? "Not reported"}</p><p><span>Timestamp</span>{selected.timestamp ?? "Not reported"}</p><p><span>Seed</span>{selected.seed ?? "Not reported"}</p><p><span>Split ID</span>{selected.splitId ?? "Not reported"}</p><p><span>Source</span>{selected.sourceArtifact}</p><p><span>Privacy boundary</span>{selected.privacyBoundary}</p></div><pre className="json-preview">{JSON.stringify(selected.configuration, null, 2)}</pre></div></div>
-      </div>
-      <div className="panel"><div className="eyebrow">NUMERICAL FIDELITY & COST</div><h2>Execution details</h2>{selected.agreement ? <div className="fidelity-card"><div><b>{selected.agreement.count}/{selected.agreement.total}</b><small>Prediction agreement</small></div><div><b>{selected.agreement.flips}</b><small>Flipped predictions</small></div></div> : <div className="empty-state compact">Prediction agreement: Unavailable for this record.</div>}
-        {selected.numericalErrors ? <div className="error-list">{Object.entries(selected.numericalErrors).map(([key, v]) => <div key={key}><span>{key}</span><b>MAE {v.meanMae === null ? "Unavailable" : v.meanMae.toExponential(2)}</b><small>Worst max abs {v.worstMax === null ? "Unavailable" : v.worstMax.toExponential(2)}</small></div>)}</div> : <div className="empty-state compact">Numerical error: Not reported for this record.</div>}
-        <h3>Timing · seconds unless stated</h3><div className="timing-list">{Object.entries(selected.timings).filter(([, value]) => value !== null).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{formatNumber(value, 5)}</b></div>)}{!Object.values(selected.timings).some((v) => v !== null) && <span className="muted">Timing unavailable.</span>}</div>
-        <h3>Ciphertext sizes</h3><div className="timing-list">{Object.entries(selected.ciphertextSizes).filter(([, value]) => value !== null).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{value?.toLocaleString()} B</b></div>)}{!Object.values(selected.ciphertextSizes).some((v) => v !== null) && <span className="muted">Ciphertext size unavailable for this execution.</span>}</div>
-        {ckksOnly && <div className="callout caution-callout">Do not interpret this as fully encrypted classification. The specific decryption boundary is listed above.</div>}
-      </div>
-    </section>}
-    <section className="panel action-panel demo-run-panel"><div className="action-icon">{run?.status === "running" ? "◌" : "▶"}</div><div className="demo-run-content"><div className="eyebrow">RUN EXPERIMENT</div><h2>{!run?.available ? "Train and test from the local dashboard" : run.status === "running" ? "Training and evaluation in progress" : run.status === "completed" ? "Run complete · results loaded" : run.status === "failed" ? "Run failed" : "Run a fresh training and test"}</h2>
-      {!run?.available ? <><p>GitHub Pages serves a static dashboard and cannot start Python jobs. To run the benchmark interactively, clone the repository, install its documented Python dependencies, then start the local dashboard with <code>npm run dev</code>.</p><code>python -m pip install -r requirements.txt</code></> : <><p>This runs the documented Phase 3 training, validation, CKKS numerical diagnostic and held-out test pipeline. Results are written to a temporary run directory, then loaded into the dashboard. Checked-in artifacts remain unchanged.</p>
-        <div className="demo-run-actions"><button className="button primary" disabled={busy || run.status === "running"} onClick={onRun}>{busy || run.status === "running" ? "Running…" : run.status === "completed" || run.status === "failed" ? "Run again" : "Start training + test"}</button>{run.status !== "idle" && run.status !== "running" && <button className="button subtle" disabled={busy} onClick={onClear}>Clear temporary run data</button>}<Status value={run.status === "idle" ? "Ready" : run.status} /></div>
-        {run.error && <p className="demo-error" role="alert">{run.error}</p>}{run.logs.length > 0 && <details className="demo-log" open={run.status === "running" || run.status === "failed"}><summary>Run log</summary><pre>{run.logs.join("\n")}</pre></details>}</>}
-    </div></section>
-  </>;
-}
-
 export function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
-  const [page, setPage] = useState<Page>("Overview");
+  const [page, setPage] = useState<Page>("Model Lab");
   const [task, setTask] = useState(primaryTask);
   const [mode, setMode] = useState<string>("All modes");
   const [variant, setVariant] = useState("A3 · RC-TinyCNN");
   const [selectedId, setSelectedId] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
-  const [demoRun, setDemoRun] = useState<DemoRun | null>(null);
-  const [demoBusy, setDemoBusy] = useState(false);
+  const [benchmarkTask, setBenchmarkTask] = useState("digits_0_vs_1");
+  const [benchmarkRun, setBenchmarkRun] = useState<BenchmarkRun | null>(null);
+  const [benchmarkBusy, setBenchmarkBusy] = useState(false);
   useEffect(() => { loadDashboardData().then(setData).catch((e: unknown) => setError(e instanceof Error ? e.message : "Unknown artifact loading error.")); }, []);
-  useEffect(() => { let alive = true; fetch("/api/demo/status", { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<DemoRun>; }).then(async (run) => { if (!alive) return; setDemoRun(run); if (run.status === "completed" && run.runId) { try { setData(await loadDashboardData(fetch, `/api/demo/artifacts/${run.runId}/`)); } catch (e) { setDemoRun({ ...run, status: "failed", error: e instanceof Error ? e.message : "Could not load the completed run artifacts." }); } } }).catch(() => { if (alive) setDemoRun({ available: false, status: "idle", logs: [] }); }); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; fetch("/api/benchmark/status", { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<BenchmarkRun>; }).then((run) => { if (alive) { setBenchmarkRun(run); if (run.task) setBenchmarkTask(run.task); } }).catch(() => { if (alive) setBenchmarkRun({ available: false, status: "idle", logs: [] }); }); return () => { alive = false; }; }, []);
   useEffect(() => {
-    if (demoRun?.status !== "running") return;
+    if (benchmarkRun?.status !== "running") return;
     let alive = true;
-    const timer = window.setInterval(() => { fetch("/api/demo/status", { cache: "no-store" }).then((response) => response.json() as Promise<DemoRun>).then(async (next) => {
-      if (!alive) return;
-      setDemoRun(next);
-      if (next.status === "completed" && next.runId) {
-        setDemoBusy(true);
-        try { setData(await loadDashboardData(fetch, `/api/demo/artifacts/${next.runId}/`)); setSelectedId(""); }
-        catch (e) { setDemoRun({ ...next, status: "failed", error: e instanceof Error ? e.message : "Could not load the completed run artifacts." }); }
-        finally { setDemoBusy(false); }
-      }
-    }).catch(() => undefined); }, 1200);
+    const timer = window.setInterval(() => { fetch("/api/benchmark/status", { cache: "no-store" }).then((response) => response.json() as Promise<BenchmarkRun>).then((next) => { if (alive) setBenchmarkRun(next); }).catch(() => undefined); }, 1200);
     return () => { alive = false; window.clearInterval(timer); };
-  }, [demoRun?.status, demoRun?.runId]);
-  const startDemoRun = async () => {
-    setDemoBusy(true);
-    try { const response = await fetch("/api/demo/run", { method: "POST" }); const body = await response.json() as DemoRun & { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not start the run."); setDemoRun(body); }
-    catch (e) { setDemoRun({ available: true, status: "failed", logs: [], error: e instanceof Error ? e.message : "Could not start the run." }); }
-    finally { setDemoBusy(false); }
+  }, [benchmarkRun?.status, benchmarkRun?.runId]);
+  const startBenchmark = async () => {
+    setBenchmarkBusy(true);
+    try { const response = await fetch(`/api/benchmark/run?task=${encodeURIComponent(benchmarkTask)}`, { method: "POST" }); const body = await response.json() as BenchmarkRun & { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not start training."); setBenchmarkRun(body); }
+    catch (error) { setBenchmarkRun((previous) => ({ ...(previous ?? { available: true, logs: [] }), status: "failed", error: error instanceof Error ? error.message : "Could not start training." })); }
+    finally { setBenchmarkBusy(false); }
   };
-  const clearDemoRun = async () => {
-    setDemoBusy(true);
-    try { const response = await fetch("/api/demo/run", { method: "DELETE" }); const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not clear temporary run data."); setDemoRun({ available: true, status: "idle", logs: [] }); setData(await loadDashboardData()); setSelectedId(""); }
-    catch (e) { setDemoRun((previous) => previous ? { ...previous, error: e instanceof Error ? e.message : "Could not clear temporary run data." } : previous); }
-    finally { setDemoBusy(false); }
+  const clearBenchmark = async () => {
+    setBenchmarkBusy(true);
+    try { const response = await fetch("/api/benchmark/run", { method: "DELETE" }); const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error ?? "Could not clear the results."); setBenchmarkRun({ available: true, status: "idle", logs: [] }); }
+    catch (error) { setBenchmarkRun((previous) => previous ? { ...previous, error: error instanceof Error ? error.message : "Could not clear the results." } : previous); }
+    finally { setBenchmarkBusy(false); }
   };
   const taskRecords = useMemo(() => data?.records.filter((r) => r.task === task) ?? [], [data, task]);
   const variantNames = [...new Set(taskRecords.map((r) => r.variant))];
@@ -271,15 +236,12 @@ export function App() {
   if (error) return <div className="app-shell error-shell"><div className="error-mark">!</div><div className="eyebrow">ARTIFACT LOAD ERROR</div><h1>Research results unavailable</h1><p>{error}</p><p className="muted">Start the dashboard from the project root so the local artifact routes are available.</p><button className="button primary" onClick={() => location.reload()}>Retry loading</button></div>;
   if (!data) return <div className="app-shell loading-shell"><div className="brand-mark">C</div><div className="loading-track"><i /></div><p>Loading verified experiment artifacts…</p></div>;
   return <div className="app-shell">
-    <aside className={`sidebar ${mobileNav ? "open" : ""}`}><div className="brand"><div className="brand-mark">C</div><div><b>CipherBench</b><small>RESEARCH WORKSPACE</small></div><button className="mobile-close" aria-label="Close navigation" onClick={() => setMobileNav(false)}>×</button></div>
-      <div className="side-project"><span className="project-icon">⌬</span><div><small>ACTIVE PROJECT</small><b>CKKS TinyCNN study</b></div><span className="side-chevron">⌄</span></div>
+    <aside className={`sidebar ${mobileNav ? "open" : ""}`}><div className="brand"><div className="brand-mark">C</div><div><b>CipherBench</b><small>MODEL WORKSPACE</small></div><button className="mobile-close" aria-label="Close navigation" onClick={() => setMobileNav(false)}>×</button></div>
       <nav aria-label="Primary navigation">{pages.map((item) => <button key={item.title} className={`nav-item ${page === item.title ? "active" : ""}`} onClick={() => { setPage(item.title); setMobileNav(false); }}><span className="nav-icon">{item.icon}</span><span><small>{item.eyebrow}</small>{item.title}</span>{page === item.title && <i />}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="sidebar-status"><span className="live-dot" /><div><b>Saved artifacts</b><small>Repository JSON and CSV</small></div></div><div className="sidebar-user"><div className="avatar">CB</div><div><b>CipherBench</b><small>Static dashboard</small></div><span>···</span></div></div>
     </aside>
     {mobileNav && <button aria-label="Close navigation overlay" className="nav-backdrop" onClick={() => setMobileNav(false)} />}
-    <main className="main-content"><header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}>☰</button><div className="breadcrumb">CipherBench <span>/</span> <b>{page}</b></div><div className="topbar-right"><div className="top-run"><span className="live-dot" />Latest run <b>{data.phase3RunId.replace("phase3-", "")}</b></div><div className="top-avatar">CB</div></div></header>
-      <div className="page-content">{page === "Overview" && <Overview data={data} task={task} mode={mode} variant={variant} onTask={chooseTask} onMode={(value) => { setMode(value); setSelectedId(""); }} onVariant={(value) => { setVariant(value); setSelectedId(""); }} selected={focusedRecord} onSelect={onSelectRecord} />}{page === "Architecture & Ablation" && <ArchitecturePage data={data} task={task} mode={mode} selectedRecord={selectedRecord} onSelectRecord={onSelectRecord} />}{page === "Experiments & Reproducibility" && <ExperimentsPage data={data} task={task} mode={mode} selectedId={selectedId} onSelectId={(id) => { setSelectedId(id); const record = data.records.find((item) => item.id === id); if (record) setVariant(record.variant); }} run={demoRun} busy={demoBusy} onRun={startDemoRun} onClear={clearDemoRun} />}</div>
-      <footer className="app-footer"><span>Data loaded from project artifacts · results retain source and split labels</span><span>Research dashboard <i>•</i> {data.records.length} artifact-backed records</span></footer>
+    <main className="main-content"><header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}>☰</button><div className="breadcrumb">CipherBench <span>/</span> <b>{page}</b></div></header>
+      <div className="page-content">{page === "Model Lab" && <ModelLab run={benchmarkRun} busy={benchmarkBusy} task={benchmarkTask} onTask={setBenchmarkTask} onRun={startBenchmark} onClear={clearBenchmark} />}{page === "Results" && <Overview data={data} task={task} mode={mode} variant={variant} onTask={chooseTask} onMode={(value) => { setMode(value); setSelectedId(""); }} onVariant={(value) => { setVariant(value); setSelectedId(""); }} selected={focusedRecord} onSelect={onSelectRecord} />}{page === "Optimization & Architecture" && <ModelComparisonPage />}</div>
     </main>
   </div>;
 }

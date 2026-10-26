@@ -135,9 +135,6 @@ def encrypted_features(
     stage_decrypt_seconds = time.perf_counter() - started
     decrypt_seconds += stage_decrypt_seconds
     states["square"] = [ciphertext_state(value) for value in square_ciphertexts]
-
-    # The reconstructed model uses non-overlapping 2x2 pooling at stride 2.
-    # Sum encrypted values, then multiply by 1/4 while still encrypted.
     started = time.perf_counter()
     pooled_ciphertexts: list[ts.CKKSVector] = []
     conv_h, conv_w = 6, 6
@@ -239,8 +236,6 @@ def encrypted_im2col_partial_inference(
     conv_values = np.asarray(encrypted_conv.decrypt(), dtype=np.float64)
     square_values = np.asarray(encrypted_square.decrypt(), dtype=np.float64)
     decrypt_seconds = time.perf_counter() - start
-    # Early decryption is required because the installed vector API does not
-    # expose rotations needed to gather each non-overlapping 2x2 window.
     start = time.perf_counter()
     pooled = square_values.reshape(3, 2, 3, 2).mean(axis=(1, 3)).reshape(-1)
     logit = float(pooled @ np.asarray(head_weights, dtype=np.float64) + head_bias)

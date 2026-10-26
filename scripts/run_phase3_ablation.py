@@ -311,13 +311,9 @@ def _fit_task(task_name: str, data, split_doc: dict, mapping: str, *, seed: int)
                                "selection_preprocessing": candidate["preprocessing_record"],
                                "configuration": record["configuration"],
                                "selection": record["selection"]}
-
-    # Validation-only threshold adjustment is separate from architecture selection.
     a3_candidate = selected_candidates["A3_pixel_scale_plus_range_penalty_RC_TinyCNN"]
     a3_val_logits = np.asarray(a3_candidate["validation"]["logits"])
     threshold_record = _select_threshold(val_y, a3_val_logits)
-
-    # Validation variability over fixed hyperparameters and repeated training seeds.
     variability = {}
     for name in ("A0_standard_scaler_control", "A3_pixel_scale_plus_range_penalty_RC_TinyCNN"):
         preprocessing, bound, penalty = configurations[name]
@@ -516,7 +512,6 @@ def main() -> None:
         "saved_models": {},
     }
     fit_quality_by_task = {}
-    # Training and selection complete for both benchmarks before the final test evaluation.
     for task_name, (data, split_doc, mapping) in benchmarks.items():
         print(f"Training and selecting configurations: {task_name}", flush=True)
         task_result, fit_quality = _fit_task(task_name, data, split_doc, mapping,
@@ -527,9 +522,6 @@ def main() -> None:
     results["status"] = "development_models_and_threshold_frozen"
     write_json(ARTIFACTS / "phase3_ablation.json", results)
     write_json(ARTIFACTS / "phase3_models.json", results["saved_models"])
-
-    # CKKS numerical comparison is performed on primary-task validation rows only.
-    # It uses the Phase 2 supported chain; the plaintext head remains explicitly plaintext.
     context_start = time.perf_counter()
     print("Running CKKS numerical validation on the primary validation split...", flush=True)
     context = make_context("depth3_40bit_exploratory")
@@ -557,8 +549,6 @@ def main() -> None:
                 config["preprocessing"], scaler, context, method,
             )
     write_json(ARTIFACTS / "phase3_ckks_validation.json", ckks_results)
-
-    # Single final evaluation per task, after architecture, grid values, and threshold are frozen.
     for task_name, (data, split_doc, _mapping) in benchmarks.items():
         print(f"Evaluating frozen configurations on held-out test rows: {task_name}", flush=True)
         _final_test(data, split_doc, results["benchmarks"][task_name], fit_quality_by_task[task_name])
