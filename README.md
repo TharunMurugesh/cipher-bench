@@ -1,6 +1,6 @@
 # CipherBench
 
-CipherBench is a small research project on convolutional inference with approximate homomorphic encryption. It reconstructs a shallow CNN from a published paper, measures plaintext and CKKS behavior on binary tasks from scikit-learn's digits dataset, and presents the saved results in a static dashboard.
+CipherBench is a small research project on convolutional inference with approximate homomorphic encryption. It reconstructs a shallow CNN from a published paper, measures plaintext and CKKS behavior on binary digit-classification tasks, and presents results in a dashboard.
 
 The project is an independent implementation and diagnostic study. It does not claim to reproduce the paper's undisclosed training procedure or to provide end-to-end encrypted classification.
 
@@ -16,9 +16,9 @@ flowchart LR
     A --> W[React dashboard]
 ```
 
-The Python code loads digits 0 and 1 for the primary task and digits 3 and 8 for a secondary task. It evaluates Logistic Regression, a shallow CNN, and a float64 implementation of the CNN's polynomial computation graph. The CNN uses a valid 3×3 convolution, square activation, 2×2 average pooling, and a linear classification head. Controlled variants compare per-feature standardization with fixed pixel scaling and a training-only activation-range penalty.
+The research pipeline uses digits 0 vs 1 as its primary task and digits 3 vs 8 as a secondary task. The dashboard's Model Lab additionally supports digits 2 vs 7 and digits 4 vs 9. All four tasks are binary subsets of scikit-learn's 8×8 Digits dataset. The research pipeline evaluates Logistic Regression, a shallow CNN, and a float64 implementation of the CNN's polynomial computation graph. The CNN uses a valid 3×3 convolution, square activation, 2×2 average pooling, and a linear classification head. Controlled variants compare per-feature standardization with fixed pixel scaling and a training-only activation-range penalty.
 
-The CKKS paths use TenSEAL to evaluate selected CNN feature-extraction operations. They decrypt intermediate features before the classification head, so they are partial encrypted-inference experiments. The static GitHub Pages site presents saved results. The local dashboard can launch the Python Phase 3 pipeline and load its newly measured results.
+The CKKS paths use TenSEAL to evaluate selected CNN feature-extraction operations. They decrypt intermediate features before the classification head, so they are partial encrypted-inference experiments. The static GitHub Pages site presents saved results and dataset files. The local Model Lab can train the two comparison models and calculate fresh held-out results.
 
 ## Main results
 
@@ -48,11 +48,15 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. The default **Model Lab** page trains the selected model pair and evaluates both on the same held-out split. Run outputs stay in temporary storage; **Clear results** removes the latest Model Lab run. Model Lab training is available in Vite development mode and requires the Python environment described below. The separate Phase 3 research pipeline can still be run with `python scripts/run_phase3_ablation.py`.
+Open the local address printed by Vite. The dashboard has three sections:
 
-The default **Model Lab** page lets evaluators train the paper-style reconstructed model and the optimized CipherBench model separately on the same held-out split. Choose among digits 0 vs 1, 2 vs 7, 3 vs 8, and 4 vs 9. **Inspect dataset** shows dataset details and class counts; the source link opens scikit-learn's dataset documentation, and the CSV button downloads every row. The four CSV files are included with the static site for inspection. The paper model is a local retraining of the paper-style architecture, not the authors' original weights.
+- **Model Lab** trains the paper-style base model and optimized CipherBench model on the selected task. Both use the same stratified training, validation, and held-out test split. Each model tab shows accuracy, precision, recall, F1, ROC-AUC, and its confusion matrix. Results stay in temporary storage; **Clear results** removes the latest run.
+- **Results** displays the saved research comparisons and CKKS measurements.
+- **Optimization & Architecture** compares the base and modified model stages side by side and explains input scaling, range-aware training, and validation-based selection.
 
-GitHub Pages is static hosting and cannot start Python jobs. Its dashboard links users to the local setup; use the deployed site to inspect saved results, and use `npm run dev` when you need to run a fresh training and test cycle.
+In Model Lab, **Inspect dataset** shows dataset details and class counts. The source link opens scikit-learn's dataset documentation; **Download all rows · CSV** downloads the selected binary task's complete data. The four CSV files are included with the static site. The Paper Model is a local retraining of the paper-style architecture, not the authors' original weights.
+
+GitHub Pages is static hosting and cannot start Python training jobs. Use the deployed site to inspect saved results and datasets; use `npm run dev` and the Python environment below to train and evaluate models.
 
 To create and preview the static site:
 
@@ -82,8 +86,10 @@ The main entry points are:
 | `python scripts/ckks_diagnostic.py` | Run the saved-model CKKS feature diagnostic |
 | `python scripts/run_phase3_ablation.py` | Run the controlled two-task ablations |
 | `python scripts/evaluate_phase3_ckks.py` | Evaluate CKKS partial paths on the saved validation split |
+| `python scripts/run_dashboard_benchmark.py --task digits_0_vs_1 --output result.json` | Train and evaluate both Model Lab models for a task |
+| `python scripts/inspect_dataset.py --task digits_0_vs_1` | Print dataset details, class counts, preview rows, and CSV data as JSON |
 
-Most experiment scripts write into `artifacts/` by default. The Phase 3 runner also accepts `CIPHERBENCH_ARTIFACT_DIR` to direct outputs elsewhere; the local dashboard uses a temporary directory automatically so its runs do not replace the checked-in results.
+Most experiment scripts write into `artifacts/` by default. The Phase 3 runner also accepts `CIPHERBENCH_ARTIFACT_DIR` to direct outputs elsewhere. Model Lab runs use a temporary directory so fresh results do not replace the checked-in artifacts.
 
 ## Reproducing and interpreting results
 
