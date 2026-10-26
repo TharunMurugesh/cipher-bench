@@ -113,4 +113,4 @@ The research PDFs are not included in this repository.
 
 ## License
 
-No license has been selected. Reuse and redistribution are not yet licensed.
+The original CipherBench source code and documentation are released under the [MIT License](LICENSE). Third-party software, research papers, and dataset-derived files may have separate terms; consult their original sources.
